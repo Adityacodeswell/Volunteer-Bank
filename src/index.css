@@ -1,0 +1,24 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,100..900;1,9..144,100..900&family=Outfit:wght@100..900&family=JetBrains+Mono:wght@100..800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", "Inter", sans-serif;
+  --font-serif: "Fraunces", serif;
+  --font-mono: "JetBrains Mono", monospace;
+  
+  --color-deep: #1B4965;
+  --color-navy: #023E8A;
+  --color-cyan: #0096C7;
+  --color-aqua: #62B6CB;
+  --color-foam: #F8F9FA;
+  --color-amber: #E8A33D;
+  --color-coral: #D8554A;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-foam);
+    color: #1F2937;
+    font-family: var(--font-sans);
+  }
+}

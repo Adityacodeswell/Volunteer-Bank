@@ -1,0 +1,6 @@
+{
+  "name": "Ocean School India - Volunteer Bank",
+  "description": "A full-stack volunteer management platform for Ocean School India, supporting Admin, Staff, and Volunteer roles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
