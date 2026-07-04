@@ -7,6 +7,7 @@ export interface Profile {
   email: string;
   phone: string;
   created_at: string;
+  must_reset_password?: boolean;
 }
 
 export interface StaffDetails {

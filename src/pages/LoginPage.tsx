@@ -1,13 +1,15 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Waves, Key, Mail, Lock, UserCheck, ArrowRight, ShieldCheck, Info } from "lucide-react";
+import { Waves, Mail, Lock, UserCheck, ArrowRight, ShieldCheck, Info } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { Button, Input } from "../components/UI";
+import { supabase } from "../supabaseClient";
+import { Profile } from "../types";
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, setPassword, apiFetch } = useAuth();
+  const { login } = useAuth();
   const { showToast } = useToast();
 
   const [email, setEmail] = useState("");
@@ -19,7 +21,7 @@ export default function LoginPage() {
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [tempUserToken, setTempUserToken] = useState<any>(null);
+  const [tempUser, setTempUser] = useState<Profile | null>(null);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,15 +36,9 @@ export default function LoginPage() {
       
       // Determine if volunteer first login
       if (userProfile.role === "volunteer") {
-        // Fetch volunteer detail to check pending status
-        const token = localStorage.getItem("osi_auth_token");
-        const headers = { Authorization: `Bearer ${token}` };
-        const volRes = await fetch(`/api/volunteers/${userProfile.id}`, { headers });
-        const volData = await volRes.json();
-        
-        if (volData.status === "pending") {
+        if (userProfile.must_reset_password === true) {
           // Trigger forced set-password step
-          setTempUserToken(userProfile);
+          setTempUser(userProfile);
           setShowPasswordReset(true);
           showToast("First-time login detected! Please establish your new secure password.", "info");
           setIsLoading(false);
@@ -75,28 +71,27 @@ export default function LoginPage() {
       showToast("Passwords do not match", "error");
       return;
     }
-    if (newPassword.length < 6) {
-      showToast("Password must be at least 6 characters long", "error");
+    if (newPassword.length < 8) {
+      showToast("Password must be at least 8 characters long", "error");
       return;
     }
 
     setIsLoading(true);
     try {
-      // Call password reset endpoint (using Auth context apiFetch)
-      await setPassword(newPassword);
-      
-      // Update volunteer status to active
-      const token = localStorage.getItem("osi_auth_token");
-      await fetch(`/api/volunteers/${tempUserToken.id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({ status: "active" })
-      });
+      // 1. Update Auth password
+      const { error: authErr } = await supabase.auth.updateUser({ password: newPassword });
+      if (authErr) throw new Error(authErr.message);
 
-      showToast("Security credentials verified! Redirecting to depth portal.", "success");
+      // 2. Clear must_reset_password flag on profiles
+      if (tempUser) {
+        const { error: profileErr } = await supabase
+          .from("profiles")
+          .update({ must_reset_password: false })
+          .eq("id", tempUser.id);
+        if (profileErr) throw new Error(profileErr.message);
+      }
+
+      showToast("Password updated. Welcome aboard.", "success");
       navigate("/volunteer");
     } catch (err: any) {
       showToast(err.message || "Failed to update security credentials", "error");
@@ -225,29 +220,11 @@ export default function LoginPage() {
                 </Button>
               </form>
 
-              {/* Demo Helper box */}
-              <div className="mt-8 border-t border-slate-100 pt-6">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Sandbox Test Credentials:</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono bg-slate-50 p-3 rounded-lg text-slate-600">
-                  <div>
-                    <span className="font-bold text-deep">Admin:</span><br />
-                    email: <span className="select-all">admin@oceanschool.org</span><br />
-                    pass: <span className="select-all">admin123</span>
-                  </div>
-                  <div>
-                    <span className="font-bold text-deep">Staff (Neha):</span><br />
-                    email: <span className="select-all">neha@oceanschool.org</span><br />
-                    pass: <span className="select-all">staff123</span>
-                  </div>
-                  <div className="sm:col-span-2 border-t border-slate-200/50 pt-2 mt-1">
-                    <span className="font-bold text-deep">Volunteer (Sneha - Active):</span><br />
-                    email: <span className="select-all">sneha.patel@gmail.com</span> / pass: <span className="select-all">vol123</span>
-                  </div>
-                  <div className="sm:col-span-2 border-t border-slate-200/50 pt-1">
-                    <span className="font-bold text-deep">Volunteer (Kabir - Pending / Temp Pass):</span><br />
-                    email: <span className="select-all">kabir.m@yahoo.com</span> / pass: <span className="select-all">vol123</span>
-                  </div>
-                </div>
+              {/* Coordinator contact footer */}
+              <div className="mt-8 border-t border-slate-100 pt-6 text-center">
+                <p className="text-xs text-slate-500 italic leading-relaxed">
+                  Credentials are issued by your regional coordinator. Contact them if you need access.
+                </p>
               </div>
             </>
           ) : (
@@ -265,7 +242,7 @@ export default function LoginPage() {
                 <Input
                   label="Create New Password"
                   type="password"
-                  placeholder="Min. 6 characters"
+                  placeholder="Min. 8 characters"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   required

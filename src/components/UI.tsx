@@ -362,7 +362,7 @@ export const Modal: React.FC<ModalProps> = ({
   }[size];
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 overflow-y-auto flex items-end sm:items-center justify-center p-0 sm:p-4">
       {/* Backdrop */}
       <div 
         className="fixed inset-0 bg-deep/40 backdrop-blur-xs transition-opacity duration-300" 
@@ -371,13 +371,13 @@ export const Modal: React.FC<ModalProps> = ({
       
       {/* Container */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 15 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 15 }}
+        initial={{ opacity: 0, y: "100%" }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: "100%" }}
         transition={{ type: "spring", duration: 0.4, bounce: 0.15 }}
-        className={`bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden w-full ${sizeClass} z-10`}
+        className={`bg-white rounded-t-2xl sm:rounded-xl shadow-2xl border border-slate-100 overflow-hidden w-full ${sizeClass} z-10 max-h-[90vh] sm:max-h-[85vh] flex flex-col`}
       >
-        <div className="flex justify-between items-center px-6 py-4 border-b border-slate-50">
+        <div className="flex justify-between items-center px-6 py-4 border-b border-slate-50 shrink-0">
           <h3 className="font-serif font-semibold text-lg text-deep tracking-tight">{title}</h3>
           <button
             onClick={onClose}
@@ -386,7 +386,7 @@ export const Modal: React.FC<ModalProps> = ({
             &times;
           </button>
         </div>
-        <div className="px-6 py-5 max-h-[75vh] overflow-y-auto">
+        <div className="px-6 py-5 overflow-y-auto flex-1">
           {children}
         </div>
       </motion.div>

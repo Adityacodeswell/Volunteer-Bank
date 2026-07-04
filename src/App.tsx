@@ -11,6 +11,7 @@ import LoginPage from "./pages/LoginPage";
 import VolunteerPortal from "./pages/VolunteerPortal";
 import StaffDashboard from "./pages/StaffDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
+import Bootstrap from "./pages/Bootstrap";
 
 // Protected Route Guard
 function ProtectedRoute({ children, role }: { children: React.ReactNode; role: "admin" | "staff" | "volunteer" }) {
@@ -96,6 +97,14 @@ export default function App() {
               element={
                 <PublicOnlyRoute>
                   <LoginPage />
+                </PublicOnlyRoute>
+              } 
+            />
+            <Route 
+              path="/bootstrap" 
+              element={
+                <PublicOnlyRoute>
+                  <Bootstrap />
                 </PublicOnlyRoute>
               } 
             />
