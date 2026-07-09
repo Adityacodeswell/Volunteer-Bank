@@ -17,7 +17,8 @@ import {
   ActivityLog,
   StaffWithProfile
 } from "../types";
-import { supabase } from "../supabaseClient";
+import { supabase, SUPABASE_URL, SUPABASE_PUBLIC_KEY } from "../supabaseClient";
+import { createClient } from "@supabase/supabase-js";
 
 function SkeletonCard() {
   return (
@@ -94,11 +95,14 @@ export default function AdminDashboard() {
   const [targetCoordId, setTargetCoordId] = useState("");
   const [isReassignSubmitting, setIsReassignSubmitting] = useState(false);
 
-  // Add staff form state
+  // Add staff/account form state
   const [staffName, setStaffName] = useState("");
   const [staffEmail, setStaffEmail] = useState("");
   const [staffPhone, setStaffPhone] = useState("");
   const [staffRegion, setStaffRegion] = useState("Navi Mumbai");
+  const [staffPassword, setStaffPassword] = useState("");
+  const [staffRole, setStaffRole] = useState<"admin" | "staff" | "volunteer">("staff");
+  const [staffSitePref, setStaffSitePref] = useState("");
   const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
 
   // Add site form state
@@ -248,66 +252,86 @@ export default function AdminDashboard() {
     loadAllData();
   }, [loadAllData]);
 
-  // Add Staff Coordinator (Task 6)
+  // Add User Account (Task 6)
   const handleAddStaffSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!staffName || !staffEmail || !staffPhone) {
-      showToast("Please enter all coordinator details", "error");
+    if (!staffName || !staffEmail || !staffPhone || !staffPassword || !staffRole) {
+      showToast("Please enter all required registration details", "error");
       return;
     }
 
     setIsSubmittingStaff(true);
     try {
-      // 1. Generate temp credentials
-      const generateTempPassword = () => {
-        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-        return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('') + '!';
-      };
-      const tempPassword = generateTempPassword();
+      // Create a temporary non-persisted client to sign up the new user 
+      // without logging out the currently active Admin session!
+      const tempClient = createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false
+        }
+      });
 
-      // 2. Sign up Auth user
-      const { data: authData, error: authErr } = await supabase.auth.signUp({
+      // 1. Sign up the new user via Supabase Auth using the temporary client
+      const { data: authData, error: authErr } = await tempClient.auth.signUp({
         email: staffEmail,
-        password: tempPassword,
+        password: staffPassword,
       });
 
       if (authErr) throw new Error(authErr.message);
       if (!authData.user) throw new Error("Could not create authentication profile");
 
-      // 3. Create profile row
-      const { error: profileErr } = await supabase.from("profiles").insert({
+      // 2. Create profile row using the newly logged-in tempClient to satisfy RLS (auth.uid() = id)
+      const { error: profileErr } = await tempClient.from("profiles").insert({
         id: authData.user.id,
-        role: "staff",
+        role: staffRole,
         full_name: staffName,
         email: staffEmail,
         phone: staffPhone,
-        must_reset_password: true
+        must_reset_password: false
       });
 
       if (profileErr) throw new Error(profileErr.message);
 
-      // 4. Log Action
+      // 3. Create volunteer row if registering a volunteer
+      if (staffRole === "volunteer") {
+        const volCode = `OSI-VOL-${String(Math.floor(1000 + Math.random() * 9000))}`;
+        const { error: volErr } = await tempClient.from("volunteers").insert({
+          profile_id: authData.user.id,
+          coordinator_id: null,
+          site_preference_id: staffSitePref || null,
+          interests: [],
+          availability: "Weekend warrior",
+          how_heard: "Admin registered",
+          status: "pending",
+          hours_logged: 0,
+          volunteer_code: volCode,
+          emergency_contact: ""
+        });
+
+        if (volErr) throw new Error(volErr.message);
+      }
+
+      // 4. Log Action using the Admin's main supabase client (which remained logged in!)
       await supabase.from("activity_log").insert({
         profile_id: user!.id,
-        action_type: "STAFF_CREATED",
-        description: `Created coordinator account for ${staffName}`
+        action_type: "ACCOUNT_CREATED",
+        description: `Admin created ${staffRole} account for ${staffName} (${staffEmail})`
       });
 
+      // Reset form states
       setIsAddStaffOpen(false);
       setStaffName("");
       setStaffEmail("");
       setStaffPhone("");
+      setStaffPassword("");
+      setStaffRole("staff");
+      setStaffSitePref("");
 
-      setCreatedStaffCreds({
-        email: staffEmail,
-        password: tempPassword
-      });
-      setStaffCredsOpen(true);
-      showToast("Staff/Coordinator registered! Security credentials generated.", "success");
+      showToast(`Account successfully registered for ${staffName}!`, "success");
 
       loadAllData();
     } catch (err: any) {
-      showToast(err.message || "Failed to register coordinator", "error");
+      showToast(err.message || "Failed to register user account", "error");
     } finally {
       setIsSubmittingStaff(false);
     }
@@ -715,7 +739,7 @@ export default function AdminDashboard() {
                         <div className="border-t border-slate-100 mt-5 pt-4">
                           <Button onClick={() => setIsAddStaffOpen(true)} className="w-full text-xs py-3 px-4 min-h-[44px]">
                             <Plus className="w-4 h-4" />
-                            Add Coordinator Staff
+                            Register New User Account
                           </Button>
                         </div>
                       </Card>
@@ -731,7 +755,7 @@ export default function AdminDashboard() {
                       <span className="text-xs font-mono font-bold text-slate-400 uppercase">ACTIVE UNITS: {staffList.length}</span>
                       <Button onClick={() => setIsAddStaffOpen(true)} className="text-xs py-3 px-4 min-h-[44px]">
                         <Plus className="w-4 h-4" />
-                        Add New Coordinator
+                        Register New User
                       </Button>
                     </div>
 
@@ -1017,11 +1041,11 @@ export default function AdminDashboard() {
         </main>
       </div>
 
-      {/* --- MODAL: ADD STAFF COORDINATOR --- */}
-      <Modal isOpen={isAddStaffOpen} onClose={() => setIsAddStaffOpen(false)} title="Register Coordinator Staff">
+      {/* --- MODAL: REGISTER USER ACCOUNT --- */}
+      <Modal isOpen={isAddStaffOpen} onClose={() => setIsAddStaffOpen(false)} title="Register User Account">
         <form onSubmit={handleAddStaffSubmit} className="flex flex-col gap-4">
           <Input
-            label="Staff Full Name *"
+            label="Full Name *"
             placeholder="E.g. Amit Rao"
             value={staffName}
             onChange={(e) => setStaffName(e.target.value)}
@@ -1031,9 +1055,9 @@ export default function AdminDashboard() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
-              label="Staff Email Address *"
+              label="Email Address *"
               type="email"
-              placeholder="name@oceanschool.org"
+              placeholder="user@example.com"
               value={staffEmail}
               onChange={(e) => setStaffEmail(e.target.value)}
               className="py-3"
@@ -1041,7 +1065,7 @@ export default function AdminDashboard() {
             />
 
             <Input
-              label="Staff Phone Number *"
+              label="Phone Number *"
               placeholder="+91 XXXXX XXXXX"
               value={staffPhone}
               onChange={(e) => setStaffPhone(e.target.value)}
@@ -1050,60 +1074,62 @@ export default function AdminDashboard() {
             />
           </div>
 
-          <Select
-            label="Assigned Operations Region *"
-            value={staffRegion}
-            onChange={(e) => setStaffRegion(e.target.value)}
-            options={[
-              { value: "Navi Mumbai", label: "Navi Mumbai Estuary Office" },
-              { value: "Lakshadweep", label: "Lakshadweep Islands Base" }
-            ]}
-          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input
+              label="Account Password *"
+              type="password"
+              placeholder="Establish secure password"
+              value={staffPassword}
+              onChange={(e) => setStaffPassword(e.target.value)}
+              className="py-3"
+              required
+            />
+
+            <Select
+              label="Account Role *"
+              value={staffRole}
+              onChange={(e) => setStaffRole(e.target.value as any)}
+              options={[
+                { value: "admin", label: "Admin" },
+                { value: "staff", label: "Staff Coordinator" },
+                { value: "volunteer", label: "Volunteer" }
+              ]}
+            />
+          </div>
+
+          {staffRole === "staff" && (
+            <Select
+              label="Assigned Operations Region *"
+              value={staffRegion}
+              onChange={(e) => setStaffRegion(e.target.value)}
+              options={[
+                { value: "Navi Mumbai", label: "Navi Mumbai Estuary Office" },
+                { value: "Lakshadweep", label: "Lakshadweep Islands Base" }
+              ]}
+            />
+          )}
+
+          {staffRole === "volunteer" && (
+            <Select
+              label="Preferred Coastal Sector Site"
+              value={staffSitePref}
+              onChange={(e) => setStaffSitePref(e.target.value)}
+              options={[
+                { value: "", label: "No Preference (General Support)" },
+                ...sites.map(s => ({ value: s.id, label: s.name }))
+              ]}
+            />
+          )}
 
           <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-slate-100">
             <Button type="button" variant="ghost" onClick={() => setIsAddStaffOpen(false)} className="py-3 px-4 min-h-[44px]">
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmittingStaff} className="py-3 px-4 min-h-[44px]">
-              {isSubmittingStaff ? "Registering Coordinator..." : "Register Staff Unit"}
+              {isSubmittingStaff ? "Registering..." : "Register Account"}
             </Button>
           </div>
         </form>
-      </Modal>
-
-      {/* --- MODAL: STAFF CONFIRM CREDENTIALS --- */}
-      <Modal isOpen={staffCredsOpen} onClose={() => setStaffCredsOpen(false)} title="Coordinator Security Pass Generated">
-        {createdStaffCreds && (
-          <div className="flex flex-col gap-4 text-xs">
-            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100 flex gap-3 text-emerald-800 leading-relaxed mb-2">
-              <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5 text-emerald-600" />
-              <div>
-                <span className="font-bold">Staff credentials verified!</span> Copy this secure entry pass to the coordinator so they can login to the console.
-              </div>
-            </div>
-
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 font-mono text-slate-600 select-all flex flex-col gap-2">
-              <div>
-                <span className="font-bold text-deep">Coordinator Email ID:</span> {createdStaffCreds.email}
-              </div>
-              <div>
-                <span className="font-bold text-deep">Temporary Password:</span> <span className="text-coral font-bold">{createdStaffCreds.password}</span>
-              </div>
-            </div>
-
-            <div className="flex gap-3 justify-end mt-4">
-              <Button variant="ghost" onClick={() => setStaffCredsOpen(false)} className="py-3 px-4 min-h-[44px]">
-                Close Console
-              </Button>
-              <Button 
-                onClick={() => copyToClipboard(`Ocean School Coordinator Security Pass\nID: ${createdStaffCreds.email}\nPass: ${createdStaffCreds.password}`)}
-                className="py-3 px-4 min-h-[44px]"
-              >
-                Copy Credentials Slip
-              </Button>
-            </div>
-          </div>
-        )}
       </Modal>
 
       {/* --- MODAL: ADD SITE TAXONOMY --- */}

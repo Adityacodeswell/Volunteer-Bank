@@ -89,10 +89,10 @@ import { createClient } from "@supabase/supabase-js";
 // =========================================================================
 
 // --- PASTE YOUR SUPABASE URL HERE ---
-const SUPABASE_URL = "https://ogmdudmlxytnucpbucxk.supabase.co";
+export const SUPABASE_URL = "https://ogmdudmlxytnucpbucxk.supabase.co";
 
 // --- PASTE YOUR SUPABASE ANON/PUBLIC KEY HERE ---
-const SUPABASE_PUBLIC_KEY = "sb_publishable_vcBV6IFYyRjTNUaWoWfXFQ_R-gFbQAy";
+export const SUPABASE_PUBLIC_KEY = "sb_publishable_vcBV6IFYyRjTNUaWoWfXFQ_R-gFbQAy";
 
 // Create and export the single Supabase client instance
 export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY);
