@@ -16,7 +16,7 @@ export const Button: React.FC<ButtonProps> = ({
   disabled,
   ...props
 }) => {
-  const baseClasses = "relative px-4 py-2 rounded-lg font-medium text-sm transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan duration-150 inline-flex items-center justify-center gap-2 cursor-pointer";
+  const baseClasses = "relative px-4 py-2 rounded-xl font-medium text-sm transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan duration-150 inline-flex items-center justify-center gap-2 cursor-pointer";
   
   const variantClasses = {
     primary: "bg-navy hover:bg-deep text-white shadow-sm disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed",
@@ -65,7 +65,7 @@ export const Input: React.FC<InputProps> = ({
       )}
       <input
         id={id}
-        className={`w-full px-3.5 py-2 rounded-lg bg-white border ${
+        className={`w-full px-3.5 py-2 rounded-xl bg-white border ${
           error ? "border-coral focus:ring-coral" : "border-slate-200 focus:border-cyan focus:ring-cyan/30"
         } text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 transition-all duration-150 ${className}`}
         {...props}
@@ -99,7 +99,7 @@ export const Select: React.FC<SelectProps> = ({
       )}
       <select
         id={id}
-        className={`w-full px-3.5 py-2 rounded-lg bg-white border ${
+        className={`w-full px-3.5 py-2 rounded-xl bg-white border ${
           error ? "border-coral focus:ring-coral" : "border-slate-200 focus:border-cyan focus:ring-cyan/30"
         } text-sm text-slate-800 focus:outline-none focus:ring-4 transition-all duration-150 ${className}`}
         {...props}
@@ -137,7 +137,7 @@ export const Textarea: React.FC<TextareaProps> = ({
       )}
       <textarea
         id={id}
-        className={`w-full px-3.5 py-2 rounded-lg bg-white border ${
+        className={`w-full px-3.5 py-2 rounded-xl bg-white border ${
           error ? "border-coral focus:ring-coral" : "border-slate-200 focus:border-cyan focus:ring-cyan/30"
         } text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 transition-all duration-150 ${className}`}
         {...props}
@@ -247,6 +247,7 @@ interface CardProps {
   className?: string;
   headerAction?: React.ReactNode;
   id?: string;
+  glass?: "light" | "dark" | "none";
 }
 
 export const Card: React.FC<CardProps> = ({
@@ -255,15 +256,22 @@ export const Card: React.FC<CardProps> = ({
   subtitle,
   className = "",
   headerAction,
-  id
+  id,
+  glass = "none"
 }) => {
+  const glassClasses = {
+    none: "bg-white border-slate-100 text-slate-800",
+    light: "bg-white/45 backdrop-blur-md border border-white/50 shadow-lg text-[#1B4965]",
+    dark: "bg-white/10 backdrop-blur-md border border-white/15 shadow-lg text-white"
+  }[glass];
+
   return (
-    <div id={id} className={`bg-white rounded-xl border border-slate-100 shadow-xs p-6 ${className}`}>
+    <div id={id} className={`rounded-xl p-6 transition-all duration-300 ${glassClasses} ${className}`}>
       {(title || subtitle || headerAction) && (
-        <div className="flex justify-between items-start gap-4 mb-5 border-b border-slate-50 pb-4">
+        <div className={`flex justify-between items-start gap-4 mb-5 border-b pb-4 ${glass === "dark" ? "border-white/10" : "border-slate-100"}`}>
           <div>
-            {title && <h3 className="font-serif font-semibold text-lg text-deep tracking-tight">{title}</h3>}
-            {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+            {title && <h3 className={`font-serif font-semibold text-lg tracking-tight ${glass === "dark" ? "text-white" : "text-[#023E8A]"}`}>{title}</h3>}
+            {subtitle && <p className={`text-xs mt-0.5 ${glass === "dark" ? "text-slate-300" : "text-slate-400"}`}>{subtitle}</p>}
           </div>
           {headerAction && <div className="shrink-0">{headerAction}</div>}
         </div>

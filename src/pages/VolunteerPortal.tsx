@@ -421,24 +421,62 @@ export default function VolunteerPortal() {
   const activeBadges = getBadges();
   const coordinatorName = volDetail?.coordinator_name || "Neha Kulkarni";
 
+  const getDepthGradientStyle = (currentDepth: number) => {
+    switch (currentDepth) {
+      case 0:
+        return {
+          background: "linear-gradient(180deg, #F8F9FA 0%, #D8EFF2 60%, #62B6CB 100%)",
+        };
+      case 5:
+        return {
+          background: "linear-gradient(180deg, #F8F9FA 0%, #62B6CB 50%, #0096C7 100%)",
+        };
+      case 15:
+        return {
+          background: "linear-gradient(180deg, #62B6CB 0%, #0096C7 50%, #023E8A 100%)",
+        };
+      case 25:
+        return {
+          background: "linear-gradient(180deg, #0096C7 0%, #023E8A 60%, #1B4965 100%)",
+        };
+      case 40:
+      default:
+        return {
+          background: "linear-gradient(180deg, #023E8A 0%, #1B4965 60%, #112F42 100%)",
+        };
+    }
+  };
+
+  const WaveDivider = ({ className = "" }: { className?: string }) => (
+    <div className={`w-full overflow-hidden leading-[0] ${className}`}>
+      <svg viewBox="0 0 1200 12" className="relative block w-full h-[8px] fill-current" preserveAspectRatio="none">
+        <path d="M0,0 C150,9 350,-3 500,6 C650,15 850,3 1000,0 C1150,-3 1200,6 1200,6 L1200,12 L0,12 Z" />
+      </svg>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 font-sans pb-24 lg:pb-0">
+    <div className="min-h-screen flex flex-col font-sans pb-24 lg:pb-0 transition-all duration-700 ease-in-out" style={getDepthGradientStyle(depth)}>
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-100 px-6 py-4 flex justify-between items-center">
+      <header className={`sticky top-0 z-40 backdrop-blur-md border-b px-6 py-4 flex justify-between items-center transition-all duration-500 ${
+        depth < 15 
+          ? "bg-[#F8F9FA]/80 border-slate-200/50 text-[#023E8A]" 
+          : "bg-[#023E8A]/80 border-white/10 text-white"
+      }`}>
         <div className="flex items-center gap-2.5">
-          <Waves className="w-7 h-7 text-cyan animate-pulse" />
+          <Waves className={`w-7 h-7 animate-pulse ${depth < 15 ? "text-cyan" : "text-white"}`} />
           <div>
-            <span className="font-serif font-black text-deep text-base tracking-tight block leading-none">OCEAN SCHOOL INDIA</span>
-            <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest block leading-none mt-0.5">Volunteer Bank</span>
+            <span className={`font-serif font-black text-base tracking-tight block leading-none ${depth < 15 ? "text-deep" : "text-white"}`}>OCEAN SCHOOL INDIA</span>
+            <span className={`text-[9px] font-semibold uppercase tracking-widest block leading-none mt-0.5 ${depth < 15 ? "text-slate-400" : "text-slate-300"}`}>Volunteer Bank</span>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 text-right hidden sm:block">
-            <span className="text-xs font-bold text-deep block leading-none">{user?.full_name}</span>
-            <span className="text-[10px] font-mono text-cyan font-bold tracking-wider">{volDetail?.volunteer_code}</span>
+            <span className={`text-xs font-bold block leading-none ${depth < 15 ? "text-deep" : "text-white"}`}>{user?.full_name}</span>
+            <span className={`text-[10px] font-mono font-bold tracking-wider ${depth < 15 ? "text-cyan" : "text-aqua"}`}>{volDetail?.volunteer_code}</span>
           </div>
-          <Button variant="ghost" onClick={logout} className="text-xs font-semibold py-3 px-4 min-h-[44px]">
+          <Button variant="ghost" onClick={logout} className={`text-xs font-semibold py-3 px-4 min-h-[44px] ${depth < 15 ? "" : "text-white hover:bg-white/10 hover:text-white"}`}>
             Sign Out
           </Button>
         </div>
@@ -448,7 +486,7 @@ export default function VolunteerPortal() {
       <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col lg:flex-row gap-8">
         
         {/* DESKTOP DEPTH GAUGE CONTROLLER */}
-        <aside className="hidden lg:flex lg:w-64 bg-deep text-white rounded-2xl p-6 shadow-xl relative overflow-hidden flex-col justify-between shrink-0 h-fit sticky top-24">
+        <aside className="hidden lg:flex lg:w-64 bg-[#023E8A] text-white rounded-xl p-6 shadow-xl relative overflow-hidden flex-col justify-between shrink-0 h-fit sticky top-24 border border-white/10">
           <div className="absolute inset-0 opacity-5 pointer-events-none">
             <div className="absolute top-10 left-5 w-20 h-20 rounded-full border border-white" />
             <div className="absolute bottom-10 right-5 w-32 h-32 rounded-full border border-white" />
@@ -502,7 +540,7 @@ export default function VolunteerPortal() {
         </aside>
 
         {/* MOBILE BOTTOM DEPTH TAB BAR */}
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-deep border-t border-slate-800 z-50 px-4 py-2 flex justify-between items-center overflow-x-auto gap-2">
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-[#023E8A] border-t border-white/10 z-50 px-4 py-2 flex justify-between items-center overflow-x-auto gap-2">
           {[
             { val: 0, label: "0m Landing", icon: Waves },
             { val: 5, label: "5m Intake", icon: User },
@@ -517,7 +555,7 @@ export default function VolunteerPortal() {
                 key={lvl.val}
                 onClick={() => setDepth(lvl.val)}
                 className="flex flex-col items-center justify-center flex-1 min-w-[56px] py-2 cursor-pointer transition-all min-h-[44px]"
-                style={{ color: isActive ? "#0096C7" : "#94A3B8" }}
+                style={{ color: isActive ? "#62B6CB" : "#94A3B8" }}
               >
                 <Icon className="w-5 h-5" />
                 <span className="text-[9px] font-bold mt-1 whitespace-nowrap">{lvl.label.split(" ")[0]}</span>
@@ -550,7 +588,7 @@ export default function VolunteerPortal() {
                 {depth === 0 && (
                   <div className="flex flex-col gap-6">
                     {/* Greeting banner */}
-                    <div className="bg-gradient-to-r from-navy to-deep text-white rounded-2xl p-8 shadow-md relative overflow-hidden">
+                    <div className="bg-[#023E8A]/90 backdrop-blur-md border border-white/20 text-white rounded-xl p-8 shadow-lg relative overflow-hidden">
                       <div className="max-w-md relative z-10">
                         <span className="px-2.5 py-0.5 rounded-full bg-cyan/20 text-aqua border border-aqua/30 text-[10px] font-bold uppercase tracking-wider">
                           Dive Base Clearance: Active
@@ -564,7 +602,7 @@ export default function VolunteerPortal() {
                         </p>
                         <button
                           onClick={() => setDepth(25)}
-                          className="mt-6 px-4 py-3 bg-cyan text-white rounded-lg text-xs font-semibold hover:bg-sky-500 transition inline-flex items-center gap-1.5 cursor-pointer min-h-[44px]"
+                          className="mt-6 px-4 py-3 bg-cyan text-white rounded-xl text-xs font-semibold hover:bg-sky-500 transition inline-flex items-center gap-1.5 cursor-pointer min-h-[44px]"
                         >
                           Explore active opportunities
                           <ArrowRight className="w-3.5 h-3.5" />
@@ -574,13 +612,13 @@ export default function VolunteerPortal() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {/* Coordinator Orientation Note */}
-                      <Card title="Coordinator Orientation Note" subtitle="Direct briefing from your assigned lead">
+                      <Card title="Coordinator Orientation Note" subtitle="Direct briefing from your assigned lead" glass="light">
                         <div className="flex items-start gap-4">
                           <Avatar name={coordinatorName} size="md" />
                           <div>
-                            <h4 className="font-bold text-sm text-deep">{coordinatorName}</h4>
-                            <p className="text-xs text-slate-400">Regional Outreach Coordinator</p>
-                            <p className="text-xs text-slate-600 italic mt-3 leading-relaxed border-l-2 border-aqua/40 pl-3">
+                            <h4 className="font-bold text-sm text-[#023E8A]">{coordinatorName}</h4>
+                            <p className="text-xs text-slate-500">Regional Outreach Coordinator</p>
+                            <p className="text-xs text-[#1B4965] italic mt-3 leading-relaxed border-l-2 border-[#0096C7] pl-3">
                               "Hello! Thank you for stepping up for Ocean School India. Our active targets this week focus on coastal conservation, sapling tag surveys, and local ecosystem monitoring. Check out the campaigns below!"
                             </p>
                           </div>
@@ -588,31 +626,31 @@ export default function VolunteerPortal() {
                       </Card>
 
                       {/* Pending tasks quick view */}
-                      <Card title="Outstanding Action Items" subtitle="Direct items to review this week">
+                      <Card title="Outstanding Action Items" subtitle="Direct items to review this week" glass="light">
                         {myTasks.filter(t => t.status !== "done").length === 0 ? (
-                          <div className="p-6 text-center text-slate-500">
-                            <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                           <div className="p-6 text-center text-[#1B4965]">
+                            <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-2" />
                             <h4 className="font-semibold text-sm">No pending tasks!</h4>
-                            <p className="text-xs mt-1">Your schedule is clear. Check the Opportunity Board at 25m Descent to sign up for new campaigns.</p>
+                            <p className="text-xs mt-1 text-slate-500">Your schedule is clear. Check the Opportunity Board at 25m Descent to sign up for new campaigns.</p>
                           </div>
                         ) : (
                           <div className="flex flex-col gap-3">
                             {myTasks.filter(t => t.status !== "done").slice(0, 3).map((task) => (
-                              <div key={task.id} className="p-3 rounded-lg bg-slate-50 border border-slate-100 flex justify-between items-center gap-4">
+                              <div key={task.id} className="p-3.5 rounded-xl bg-white/40 border border-white/50 flex justify-between items-center gap-4 text-[#1B4965]">
                                 <div>
-                                  <span className="text-xs font-semibold text-deep block">{task.title}</span>
-                                  <span className="text-[10px] text-slate-400 mt-0.5 block">Due: {task.due_date}</span>
+                                  <span className="text-xs font-semibold text-[#023E8A] block">{task.title}</span>
+                                  <span className="text-[10px] text-slate-500 mt-0.5 block font-mono">Due: {task.due_date}</span>
                                 </div>
                                 <button
                                   onClick={() => handleToggleTask(task.id, task.status)}
-                                  className="px-3 py-2 bg-navy hover:bg-deep text-white text-[10px] font-bold cursor-pointer rounded min-h-[44px]"
+                                  className="px-4 py-2 bg-[#023E8A] hover:bg-[#1B4965] text-white text-[10px] font-bold cursor-pointer rounded-xl min-h-[44px]"
                                 >
                                   Mark Done
                                 </button>
                               </div>
                             ))}
                             {myTasks.filter(t => t.status !== "done").length > 3 && (
-                              <button onClick={() => setDepth(25)} className="text-xs font-bold text-cyan hover:underline text-center mt-2 block min-h-[44px]">
+                              <button onClick={() => setDepth(25)} className="text-xs font-bold text-[#0096C7] hover:underline text-center mt-2 block min-h-[44px]">
                                 View all +{myTasks.filter(t => t.status !== "done").length - 3} tasks
                               </button>
                             )}
@@ -625,7 +663,7 @@ export default function VolunteerPortal() {
 
                 {/* --- 5m INTAKE SURVEY VIEW --- */}
                 {depth === 5 && (
-                  <Card title="Intake Records & Site Verification" subtitle="Ensure your active site preferences and contacts are verified">
+                  <Card title="Intake Records & Site Verification" subtitle="Ensure your active site preferences and contacts are verified" glass="light">
                     {isEditingIntake ? (
                       <form onSubmit={handleUpdateIntake} className="flex flex-col gap-5">
                         <Select
@@ -657,26 +695,26 @@ export default function VolunteerPortal() {
                       </form>
                     ) : (
                       <div className="flex flex-col gap-6">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 bg-slate-50 p-6 rounded-xl border border-slate-100">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 bg-white/45 backdrop-blur-xs p-6 rounded-xl border border-white/60">
                           <div>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Intake Code ID</span>
-                            <span className="font-mono text-sm font-bold text-deep mt-1 block">{volDetail?.volunteer_code}</span>
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Intake Code ID</span>
+                            <span className="font-mono text-sm font-bold text-[#023E8A] mt-1 block">{volDetail?.volunteer_code}</span>
                           </div>
                           <div>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Preferred Site Sector</span>
-                            <span className="text-sm font-bold text-deep mt-1 block">{volDetail?.site_name || "Unspecified"}</span>
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Preferred Site Sector</span>
+                            <span className="text-sm font-bold text-[#023E8A] mt-1 block">{volDetail?.site_name || "Unspecified"}</span>
                           </div>
                           <div>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Time Commitment Profile</span>
-                            <span className="text-sm font-bold text-deep mt-1 block">{volDetail?.availability || "General Support"}</span>
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Time Commitment Profile</span>
+                            <span className="text-sm font-bold text-[#023E8A] mt-1 block">{volDetail?.availability || "General Support"}</span>
                           </div>
                           <div>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Intake Source</span>
-                            <span className="text-sm font-bold text-deep mt-1 block">{volDetail?.how_heard || "Direct Referral"}</span>
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Intake Source</span>
+                            <span className="text-sm font-bold text-[#023E8A] mt-1 block">{volDetail?.how_heard || "Direct Referral"}</span>
                           </div>
                           <div className="sm:col-span-2 border-t border-slate-200/50 pt-4">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Emergency Contact</span>
-                            <span className="text-sm font-bold text-deep mt-1 block">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Emergency Contact</span>
+                            <span className="text-sm font-bold text-[#023E8A] mt-1 block">
                               {volDetail?.emergency_contact ? (
                                 volDetail.emergency_contact
                               ) : (
@@ -703,49 +741,49 @@ export default function VolunteerPortal() {
                 {depth === 15 && (
                   <div className="flex flex-col gap-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <Card title="Volunteer Details" subtitle="My core system profile" className="md:col-span-1">
+                      <Card title="Volunteer Details" subtitle="My core system profile" className="md:col-span-1" glass="dark">
                         <div className="flex flex-col items-center text-center">
                           <Avatar name={user?.full_name || ""} size="lg" className="mb-4" />
-                          <h3 className="font-serif font-black text-deep text-lg">{user?.full_name}</h3>
-                          <p className="text-xs text-slate-400 font-mono mt-0.5">{volDetail?.volunteer_code}</p>
+                          <h3 className="font-serif font-black text-white text-lg">{user?.full_name}</h3>
+                          <p className="text-xs text-slate-300 font-mono mt-0.5">{volDetail?.volunteer_code}</p>
 
-                          <div className="w-full border-t border-slate-100 mt-4 pt-4 flex flex-col gap-2 text-left text-xs">
+                          <div className="w-full border-t border-white/10 mt-4 pt-4 flex flex-col gap-2 text-left text-xs">
                             <div>
-                              <span className="text-slate-400 block uppercase tracking-wider text-[9px] font-bold">Email Address</span>
-                              <span className="font-medium text-slate-700">{user?.email}</span>
+                              <span className="text-slate-300 block uppercase tracking-wider text-[9px] font-bold">Email Address</span>
+                              <span className="font-medium text-white">{user?.email}</span>
                             </div>
                             <div>
-                              <span className="text-slate-400 block uppercase tracking-wider text-[9px] font-bold">Phone Connection</span>
-                              <span className="font-medium text-slate-700">{user?.phone || "No phone linked"}</span>
+                              <span className="text-slate-300 block uppercase tracking-wider text-[9px] font-bold">Phone Connection</span>
+                              <span className="font-medium text-white">{user?.phone || "No phone linked"}</span>
                             </div>
                           </div>
                         </div>
                       </Card>
 
-                      <Card title="Earned Badges & Activity Tags" subtitle="Based on active logged hours and research preferences" className="md:col-span-2">
+                      <Card title="Earned Badges & Activity Tags" subtitle="Based on active logged hours and research preferences" className="md:col-span-2" glass="dark">
                         <div className="flex flex-wrap gap-2.5 mb-6">
                           {volDetail?.interests && volDetail.interests.length > 0 ? (
                             volDetail.interests.map((tag, idx) => (
-                              <span key={idx} className="px-2.5 py-1.5 rounded bg-cyan/10 text-cyan text-xs font-semibold">
+                              <span key={idx} className="px-2.5 py-1.5 rounded-xl bg-white/10 text-white border border-white/10 text-xs font-semibold">
                                 #{tag}
                               </span>
                             ))
                           ) : (
-                            <span className="text-slate-400 text-xs italic">No interest tags declared.</span>
+                            <span className="text-slate-300 text-xs italic">No interest tags declared.</span>
                           )}
                         </div>
 
-                        <h4 className="text-xs font-bold text-deep uppercase tracking-wider mb-3">Field Badges</h4>
+                        <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Field Badges</h4>
                         {activeBadges.length === 0 ? (
-                          <p className="text-xs text-slate-400 italic">No badges earned yet. Complete opportunities to earn badges!</p>
+                          <p className="text-xs text-slate-300 italic">No badges earned yet. Complete opportunities to earn badges!</p>
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {activeBadges.map((badge, idx) => (
-                              <div key={idx} className="p-3.5 rounded-xl border border-slate-100 bg-slate-50 flex items-start gap-3">
-                                <Award className="w-8 h-8 text-cyan shrink-0" />
+                              <div key={idx} className="p-3.5 rounded-xl border border-white/10 bg-white/5 flex items-start gap-3">
+                                <Award className="w-8 h-8 text-aqua shrink-0" />
                                 <div>
-                                  <h5 className="font-bold text-xs text-deep">{badge.title}</h5>
-                                  <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">{badge.desc}</p>
+                                  <h5 className="font-bold text-xs text-white">{badge.title}</h5>
+                                  <p className="text-[10px] text-slate-300 mt-0.5 leading-relaxed">{badge.desc}</p>
                                 </div>
                               </div>
                             ))}
@@ -754,14 +792,14 @@ export default function VolunteerPortal() {
                       </Card>
                     </div>
 
-                    <Card title={`Conversation with Coordinator: ${coordinatorName}`} subtitle="Direct secure 1:1 messenger. Check in for instructions.">
-                      <div className="flex flex-col h-96 border border-slate-100 rounded-xl overflow-hidden bg-slate-50">
+                    <Card title={`Conversation with Coordinator: ${coordinatorName}`} subtitle="Direct secure 1:1 messenger. Check in for instructions." glass="dark">
+                      <div className="flex flex-col h-96 border border-white/10 rounded-xl overflow-hidden bg-white/5">
                         <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-3">
                           {messages.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-center p-6">
                               <MessageSquare className="w-10 h-10 text-cyan mb-2" />
-                              <h4 className="font-semibold text-sm text-deep">No messages yet</h4>
-                              <p className="text-xs text-slate-500 mt-0.5">Select a volunteer to start a conversation, or say hello below.</p>
+                              <h4 className="font-semibold text-sm text-white">No messages yet</h4>
+                              <p className="text-xs text-slate-300 mt-0.5">Select a volunteer to start a conversation, or say hello below.</p>
                             </div>
                           ) : (
                             messages.map((msg) => {
@@ -771,8 +809,8 @@ export default function VolunteerPortal() {
                                   key={msg.id}
                                   className={`max-w-[80%] p-3.5 rounded-xl text-xs leading-relaxed ${
                                     isMe
-                                      ? "bg-navy text-white rounded-br-none self-end animate-fade-in"
-                                      : "bg-white text-slate-800 border border-slate-100 rounded-bl-none self-start"
+                                      ? "bg-[#0096C7] text-white rounded-br-none self-end animate-fade-in"
+                                      : "bg-white/10 border border-white/10 text-white rounded-bl-none self-start"
                                   }`}
                                 >
                                   <p>{msg.body}</p>
@@ -786,18 +824,18 @@ export default function VolunteerPortal() {
                           <div ref={messagesEndRef} />
                         </div>
 
-                        <form onSubmit={handleSendMessage} className="bg-white border-t border-slate-100 p-3 flex gap-2.5">
+                        <form onSubmit={handleSendMessage} className="bg-white/5 border-t border-white/10 p-3 flex gap-2.5">
                           <input
                             type="text"
                             placeholder={`Message ${coordinatorName}...`}
                             value={newMessageText}
                             onChange={(e) => setNewMessageText(e.target.value)}
-                            className="flex-1 px-4 py-3 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan min-h-[44px]"
+                            className="flex-1 px-4 py-3 text-xs bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan text-white placeholder-slate-400 min-h-[44px]"
                           />
                           <button
                             type="submit"
                             disabled={!newMessageText.trim() || isSendingMessage}
-                            className="px-4 py-3 bg-navy hover:bg-deep disabled:opacity-50 text-white rounded-lg text-xs font-bold shrink-0 transition inline-flex items-center gap-1 cursor-pointer min-h-[44px]"
+                            className="px-4 py-3 bg-[#0096C7] hover:bg-[#023E8A] disabled:opacity-50 text-white rounded-xl text-xs font-bold shrink-0 transition inline-flex items-center gap-1 cursor-pointer min-h-[44px]"
                           >
                             <Send className="w-3.5 h-3.5" />
                           </button>
@@ -810,12 +848,12 @@ export default function VolunteerPortal() {
                 {/* --- 25m CAMPAIGNS, OPPORTUNITIES & TASKS --- */}
                 {depth === 25 && (
                   <div className="flex flex-col gap-8">
-                    <Card title="My Personal Tasks Checklist" subtitle="Track tasks assigned by your coordinator">
+                    <Card title="My Personal Tasks Checklist" subtitle="Track tasks assigned by your coordinator" glass="dark">
                       {myTasks.length === 0 ? (
-                        <div className="p-8 text-center bg-slate-50 border border-slate-100 rounded-xl">
-                          <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
-                          <h4 className="font-bold text-sm text-deep">No tasks assigned yet!</h4>
-                          <p className="text-xs text-slate-500 mt-1">Excellent. You are currently fully up to date with your site-related responsibilities.</p>
+                        <div className="p-8 text-center bg-white/5 border border-white/10 rounded-xl text-white">
+                          <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
+                          <h4 className="font-bold text-sm">No tasks assigned yet!</h4>
+                          <p className="text-xs text-slate-300 mt-1">Excellent. You are currently fully up to date with your site-related responsibilities.</p>
                         </div>
                       ) : (
                         <div className="flex flex-col gap-3">
@@ -826,26 +864,26 @@ export default function VolunteerPortal() {
                                 key={task.id}
                                 className={`p-4 rounded-xl border transition flex items-start gap-4 ${
                                   isDone 
-                                    ? "bg-slate-50 border-slate-100 text-slate-400" 
-                                    : "bg-white border-slate-100 hover:border-slate-200"
+                                    ? "bg-white/5 border-white/5 text-slate-400" 
+                                    : "bg-white/10 border border-white/10 hover:border-white/20 text-white"
                                 }`}
                               >
                                 <input
                                   type="checkbox"
                                   checked={isDone}
                                   onChange={() => handleToggleTask(task.id, task.status)}
-                                  className="w-5 h-5 rounded border-slate-300 text-cyan focus:ring-cyan mt-0.5 cursor-pointer min-h-[44px] min-w-[44px]"
+                                  className="w-5 h-5 rounded border-white/20 bg-white/10 text-cyan focus:ring-cyan mt-0.5 cursor-pointer min-h-[44px] min-w-[44px]"
                                 />
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <h4 className={`text-sm font-bold leading-tight ${isDone ? "line-through text-slate-400" : "text-deep"}`}>
+                                    <h4 className={`text-sm font-bold leading-tight ${isDone ? "line-through text-slate-400" : "text-white"}`}>
                                       {task.title}
                                     </h4>
                                     <Badge status={task.priority} />
                                   </div>
-                                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">{task.description}</p>
+                                  <p className="text-xs text-slate-300 mt-1 leading-relaxed">{task.description}</p>
                                   
-                                  <div className="flex gap-4 mt-2 text-[10px] text-slate-400 font-mono">
+                                  <div className="flex gap-4 mt-2 text-[10px] text-slate-300 font-mono">
                                     <span>DUE: {task.due_date}</span>
                                   </div>
                                 </div>
@@ -857,16 +895,17 @@ export default function VolunteerPortal() {
                     </Card>
 
                     <div className="flex flex-col gap-4">
-                      <div className="border-b border-slate-100 pb-2">
-                        <h2 className="font-serif font-black text-xl text-deep">Active Marine Restoration Campaigns</h2>
-                        <p className="text-slate-400 text-xs mt-0.5">Explore active drives and volunteer signups.</p>
+                      <div className="pb-2 text-white relative">
+                        <h2 className="font-serif font-black text-xl">Active Marine Restoration Campaigns</h2>
+                        <p className="text-slate-300 text-xs mt-0.5">Explore active drives and volunteer signups.</p>
+                        <WaveDivider className="text-white/20 mt-3" />
                       </div>
 
                       {opportunities.filter(o => o.status !== "cancelled").length === 0 ? (
-                        <div className="p-8 text-center bg-slate-50 border border-slate-100 rounded-xl">
-                          <Waves className="w-12 h-12 text-cyan mx-auto mb-3" />
-                          <h4 className="font-bold text-sm text-deep">Campaign board is currently still</h4>
-                          <p className="text-xs text-slate-500 mt-1">There are no active coastal campaigns or open drives posted at this moment.</p>
+                        <div className="p-8 text-center bg-white/5 border border-white/10 rounded-xl text-white">
+                          <Waves className="w-12 h-12 text-cyan mx-auto mb-3 animate-pulse" />
+                          <h4 className="font-bold text-sm">Campaign board is currently still</h4>
+                          <p className="text-xs text-slate-300 mt-1">There are no active coastal campaigns or open drives posted at this moment.</p>
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -875,47 +914,47 @@ export default function VolunteerPortal() {
                             return (
                               <div
                                 key={opp.id}
-                                className={`bg-white rounded-xl border border-slate-100 overflow-hidden flex flex-col justify-between hover:shadow-md transition duration-200 ${
+                                className={`bg-white/10 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden flex flex-col justify-between hover:shadow-lg transition duration-200 text-white ${
                                   isCompleted ? "opacity-75" : ""
                                 }`}
                               >
                                 <div className="p-5">
                                   <div className="flex justify-between items-start gap-3">
                                     <Badge status={opp.status} />
-                                    <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wide">
+                                    <span className="text-[10px] font-mono font-bold text-slate-300 uppercase tracking-wide">
                                       {opp.commitment_label}
                                     </span>
                                   </div>
 
-                                  <h3 className="font-serif font-bold text-base text-deep mt-3">
+                                  <h3 className="font-serif font-bold text-base text-white mt-3">
                                     {opp.title}
                                   </h3>
-                                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                                  <p className="text-xs text-slate-300 mt-2 leading-relaxed">
                                     {opp.description}
                                   </p>
 
-                                  <div className="border-t border-slate-50 mt-4 pt-3 flex flex-wrap gap-x-4 gap-y-2 text-[10px] text-slate-400 font-mono">
-                                    <div>SITE: <span className="font-bold text-slate-600">{opp.site?.name || "Multiple"}</span></div>
-                                    <div>DATE: <span className="font-bold text-slate-600">{new Date(opp.date).toLocaleDateString()}</span></div>
-                                    <div>CAPACITY: <span className="font-bold text-slate-600">{opp.signup_count}/{opp.capacity}</span></div>
+                                  <div className="border-t border-white/10 mt-4 pt-3 flex flex-wrap gap-x-4 gap-y-2 text-[10px] text-slate-300 font-mono">
+                                    <div>SITE: <span className="font-bold text-white">{opp.site?.name || "Multiple"}</span></div>
+                                    <div>DATE: <span className="font-bold text-white">{new Date(opp.date).toLocaleDateString()}</span></div>
+                                    <div>CAPACITY: <span className="font-bold text-white">{opp.signup_count}/{opp.capacity}</span></div>
                                   </div>
                                 </div>
 
-                                <div className="bg-slate-50 px-5 py-3.5 border-t border-slate-100 flex justify-end">
+                                <div className="bg-white/5 px-5 py-3.5 border-t border-white/10 flex justify-end">
                                   {isCompleted ? (
-                                    <span className="text-xs font-semibold text-emerald-600 inline-flex items-center gap-1.5">
+                                    <span className="text-xs font-semibold text-emerald-400 inline-flex items-center gap-1.5">
                                       <CheckCircle2 className="w-4 h-4" />
                                       Campaign Completed
                                     </span>
                                   ) : opp.is_signed_up ? (
-                                    <Button variant="secondary" onClick={() => handleCancelSignUp(opp.id)} className="w-full sm:w-auto text-xs py-3 px-4 min-h-[44px]">
+                                    <Button variant="ghost" onClick={() => handleCancelSignUp(opp.id)} className="w-full sm:w-auto text-xs py-3 px-4 min-h-[44px] text-white hover:bg-white/10 hover:text-white">
                                       Cancel Signup
                                     </Button>
                                   ) : (
                                     <Button
                                       disabled={opp.signup_count >= opp.capacity}
                                       onClick={() => handleSignUp(opp.id)}
-                                      className="w-full sm:w-auto text-xs py-3 px-4 min-h-[44px]"
+                                      className="w-full sm:w-auto text-xs py-3 px-4 min-h-[44px] bg-[#0096C7] hover:bg-[#023E8A]"
                                     >
                                       {opp.signup_count >= opp.capacity ? "Campaign Full" : "Sign Up"}
                                     </Button>
@@ -935,50 +974,50 @@ export default function VolunteerPortal() {
                   <div className="flex flex-col gap-6">
                     {/* Personal stats strip */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                      <Card title="Hours Credited" subtitle="Approved by coordinator" className="text-center">
+                      <Card title="Hours Credited" subtitle="Approved by coordinator" className="text-center" glass="dark">
                         <span className="font-serif font-black text-4xl text-cyan">{stats.hours}h</span>
-                        <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-2 font-semibold">Total logged hours</p>
+                        <p className="text-[10px] text-slate-300 uppercase tracking-widest mt-2 font-semibold">Total logged hours</p>
                       </Card>
-                      <Card title="Visits Recorded" subtitle="Dives & baseline sampling drives" className="text-center">
+                      <Card title="Visits Recorded" subtitle="Dives & baseline sampling drives" className="text-center" glass="dark">
                         <span className="font-serif font-black text-4xl text-cyan">{stats.visits}</span>
-                        <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-2 font-semibold">Active site visits</p>
+                        <p className="text-[10px] text-slate-300 uppercase tracking-widest mt-2 font-semibold">Active site visits</p>
                       </Card>
-                      <Card title="Sign-ups Logged" subtitle="Current commitment ledger" className="text-center">
+                      <Card title="Sign-ups Logged" subtitle="Current commitment ledger" className="text-center" glass="dark">
                         <span className="font-serif font-black text-4xl text-cyan">{stats.signups}</span>
-                        <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-2 font-semibold">Campaign registrations</p>
+                        <p className="text-[10px] text-slate-300 uppercase tracking-widest mt-2 font-semibold">Campaign registrations</p>
                       </Card>
                     </div>
 
                     {/* Global impact indicators */}
-                    <Card title="Ocean School India — Aggregate Impact Indicators" subtitle="Aggregated scientific outcomes logged by active field units">
+                    <Card title="Ocean School India — Aggregate Impact Indicators" subtitle="Aggregated scientific outcomes logged by active field units" glass="dark">
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 text-center py-6">
-                        <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                        <div className="p-4 rounded-xl bg-[#0096C7]/20 border border-white/10 backdrop-blur-xs">
                           <Waves className="w-8 h-8 text-cyan mx-auto mb-2" />
-                          <span className="font-serif font-black text-3xl text-deep block">{stats.globalVolunteers}</span>
-                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mt-1">Volunteer Pool</span>
+                          <span className="font-serif font-black text-3xl text-white block">{stats.globalVolunteers}</span>
+                          <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider block mt-1">Volunteer Pool</span>
                         </div>
 
-                        <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                        <div className="p-4 rounded-xl bg-[#0096C7]/20 border border-white/10 backdrop-blur-xs">
                           <Trash2 className="w-8 h-8 text-coral mx-auto mb-2" />
-                          <span className="font-serif font-black text-3xl text-deep block">{stats.plasticRemovedKg} kg</span>
-                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mt-1">Plastic Extracted</span>
+                          <span className="font-serif font-black text-3xl text-white block">{stats.plasticRemovedKg} kg</span>
+                          <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider block mt-1">Plastic Extracted</span>
                         </div>
 
-                        <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                        <div className="p-4 rounded-xl bg-[#0096C7]/20 border border-white/10 backdrop-blur-xs">
                           <Award className="w-8 h-8 text-amber mx-auto mb-2" />
-                          <span className="font-serif font-black text-3xl text-deep block">{stats.saplingsCounted}</span>
-                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mt-1">Saplings Tagged</span>
+                          <span className="font-serif font-black text-3xl text-white block">{stats.saplingsCounted}</span>
+                          <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider block mt-1">Saplings Tagged</span>
                         </div>
 
-                        <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                          <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                          <span className="font-serif font-black text-3xl text-deep block">{stats.raftHouseholdsReached}</span>
-                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mt-1">RAFT Contacts</span>
+                        <div className="p-4 rounded-xl bg-[#0096C7]/20 border border-white/10 backdrop-blur-xs">
+                          <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+                          <span className="font-serif font-black text-3xl text-white block">{stats.raftHouseholdsReached}</span>
+                          <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider block mt-1">RAFT Contacts</span>
                         </div>
                       </div>
 
-                      <div className="bg-sky-50 p-4 rounded-xl border border-sky-100 text-xs text-sky-800 leading-relaxed mt-4">
-                        <span className="font-bold block mb-1">Impact Transparency Policy:</span> In alignment with social work guidelines, all plastic extracted, saplings monitored, and hours credited are verified weekly by assigned coordinators prior to final regional publishing.
+                      <div className="bg-[#62B6CB]/20 p-4 rounded-xl border border-white/10 text-xs text-white leading-relaxed mt-4">
+                        <span className="font-bold text-cyan block mb-1">Impact Transparency Policy:</span> In alignment with social work guidelines, all plastic extracted, saplings monitored, and hours credited are verified weekly by assigned coordinators prior to final regional publishing.
                       </div>
                     </Card>
                   </div>

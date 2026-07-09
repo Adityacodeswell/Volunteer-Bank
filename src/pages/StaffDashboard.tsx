@@ -164,12 +164,14 @@ export default function StaffDashboard() {
 
       if (volsErr) throw new Error(volsErr.message);
 
-      const mappedVols: VolunteerWithProfile[] = (volsData || []).map(v => ({
-        ...v,
-        profile: v.profile,
-        site_name: v.site?.name,
-        coordinator_name: user.full_name
-      }));
+      const mappedVols: VolunteerWithProfile[] = (volsData || [])
+        .filter(v => v && v.profile)
+        .map(v => ({
+          ...v,
+          profile: v.profile,
+          site_name: v.site?.name,
+          coordinator_name: user?.full_name || "Unknown Coordinator"
+        }));
       setVolunteers(mappedVols);
 
       // 2. Fetch opportunities
@@ -210,7 +212,7 @@ export default function StaffDashboard() {
 
       const mappedTasks: Task[] = (tasksData || []).map(t => ({
         ...t,
-        volunteer_name: t.volunteer?.full_name
+        volunteer_name: t.volunteer?.full_name || "Unknown Volunteer"
       }));
       setTasks(mappedTasks);
 
@@ -784,43 +786,56 @@ export default function StaffDashboard() {
   );
   const activeVolProfile = volunteers.find((v) => v.profile_id === activeThreadVolId)?.profile;
 
-  const filteredVolunteers = volunteers.filter((v) => {
-    const query = volSearch.toLowerCase();
-    return (
-      v.profile.full_name.toLowerCase().includes(query) ||
-      v.volunteer_code.toLowerCase().includes(query) ||
-      (v.site_name || "").toLowerCase().includes(query)
-    );
-  });
+  const filteredVolunteers = volunteers
+    .filter((v) => v && v.profile)
+    .filter((v) => {
+      const query = volSearch.toLowerCase();
+      const fullName = v.profile?.full_name || "Unknown User";
+      const volunteerCode = v.volunteer_code || "";
+      const siteName = v.site_name || "";
+      return (
+        fullName.toLowerCase().includes(query) ||
+        volunteerCode.toLowerCase().includes(query) ||
+        siteName.toLowerCase().includes(query)
+      );
+    });
 
   const selectedVolDetail = volunteers.find(v => v.profile_id === selectedVolId);
 
+  const WaveDivider = ({ className = "" }: { className?: string }) => (
+    <div className={`w-full overflow-hidden leading-[0] ${className}`}>
+      <svg viewBox="0 0 1200 12" className="relative block w-full h-[8px] fill-current" preserveAspectRatio="none">
+        <path d="M0,0 C150,9 350,-3 500,6 C650,15 850,3 1000,0 C1150,-3 1200,6 1200,6 L1200,12 L0,12 Z" />
+      </svg>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-screen flex flex-col font-sans" style={{ background: "linear-gradient(180deg, #F8F9FA 0%, #D8EFF2 60%, #62B6CB 100%)" }}>
       
       {/* Top Banner Header */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-100 px-6 py-4 flex justify-between items-center shadow-xs">
+      <header className="sticky top-0 z-40 bg-[#023E8A] text-white px-6 py-4 flex justify-between items-center shadow-md">
         <div className="flex items-center gap-2.5">
           <button 
             onClick={() => setIsSidebarOpen(true)}
-            className="md:hidden p-2 hover:bg-slate-50 rounded-lg text-deep"
+            className="md:hidden p-2 hover:bg-white/10 rounded-lg text-white"
           >
             <Menu className="w-6 h-6" />
           </button>
           
           <Waves className="w-7 h-7 text-cyan animate-pulse shrink-0" />
           <div>
-            <span className="font-serif font-black text-deep text-base tracking-tight block leading-none">OCEAN SCHOOL INDIA</span>
-            <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest block leading-none mt-0.5">Coordinator Console</span>
+            <span className="font-serif font-black text-white text-base tracking-tight block leading-none">OCEAN SCHOOL INDIA</span>
+            <span className="text-[9px] font-semibold text-slate-300 uppercase tracking-widest block leading-none mt-0.5">Coordinator Console</span>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="flex flex-col text-right hidden sm:block">
-            <span className="text-xs font-bold text-deep block leading-none">{user?.full_name}</span>
-            <span className="text-[10px] font-mono text-cyan font-bold uppercase tracking-wider block mt-1">Staff Lead</span>
+            <span className="text-xs font-bold text-white block leading-none">{user?.full_name}</span>
+            <span className="text-[10px] font-mono text-[#62B6CB] font-bold uppercase tracking-wider block mt-1">Staff Lead</span>
           </div>
-          <Button variant="ghost" onClick={logout} className="text-xs font-semibold py-3 px-4 min-h-[44px]">
+          <Button variant="ghost" onClick={logout} className="text-xs font-semibold py-3 px-4 min-h-[44px] text-white hover:bg-white/10 hover:text-white">
             Sign Out
           </Button>
         </div>
@@ -950,20 +965,20 @@ export default function StaffDashboard() {
                     
                     {/* Quick statistics strip */}
                     <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6">
-                      <Card title="Registry Pool" subtitle="Assigned volunteers" className="text-center">
-                        <span className="font-serif font-black text-3xl text-deep">{stats.totalVolunteers}</span>
+                      <Card title="Registry Pool" subtitle="Assigned volunteers" className="text-center" glass="light">
+                        <span className="font-serif font-black text-3xl text-[#023E8A]">{stats.totalVolunteers}</span>
                       </Card>
-                      <Card title="Active Field Staff" subtitle="Logged in this week" className="text-center">
-                        <span className="font-serif font-black text-3xl text-deep">{stats.activeThisWeek}</span>
+                      <Card title="Active Field Staff" subtitle="Logged in this week" className="text-center" glass="light">
+                        <span className="font-serif font-black text-3xl text-[#023E8A]">{stats.activeThisWeek}</span>
                       </Card>
-                      <Card title="Total Lab Hours" subtitle="Credits approved" className="text-center">
-                        <span className="font-serif font-black text-3xl text-deep">{stats.hoursLogged}h</span>
+                      <Card title="Total Lab Hours" subtitle="Credits approved" className="text-center" glass="light">
+                        <span className="font-serif font-black text-3xl text-[#023E8A]">{stats.hoursLogged}h</span>
                       </Card>
-                      <Card title="Open Tasks" subtitle="Awaiting completion" className="text-center">
-                        <span className="font-serif font-black text-3xl text-deep">{stats.openTasks}</span>
+                      <Card title="Open Tasks" subtitle="Awaiting completion" className="text-center" glass="light">
+                        <span className="font-serif font-black text-3xl text-[#023E8A]">{stats.openTasks}</span>
                       </Card>
-                      <Card title="Direct Unread" subtitle="Direct citizen logs" className="text-center">
-                        <span className="font-serif font-black text-3xl text-deep">{stats.unreadMessages}</span>
+                      <Card title="Direct Unread" subtitle="Direct citizen logs" className="text-center" glass="light">
+                        <span className="font-serif font-black text-3xl text-[#023E8A]">{stats.unreadMessages}</span>
                       </Card>
                     </div>
 
@@ -971,73 +986,73 @@ export default function StaffDashboard() {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                       
                       {/* Quick actions box */}
-                      <Card title="Regional Operations Quick Launch" subtitle="Operational shortcuts for daily coordinator tasks">
+                      <Card title="Regional Operations Quick Launch" subtitle="Operational shortcuts for daily coordinator tasks" glass="light">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <button
                             onClick={() => setIsAddVolOpen(true)}
-                            className="p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-slate-100/50 hover:border-slate-200 transition text-left flex items-start gap-4 cursor-pointer group min-h-[44px]"
+                            className="p-4 rounded-xl border border-white/50 bg-white/40 hover:bg-white/70 hover:border-white/80 transition text-left flex items-start gap-4 cursor-pointer group min-h-[44px]"
                           >
-                            <PlusCircle className="w-8 h-8 text-cyan shrink-0" />
+                            <PlusCircle className="w-8 h-8 text-[#0096C7] shrink-0" />
                             <div>
-                              <h4 className="font-bold text-xs text-deep group-hover:text-cyan">Add Volunteer</h4>
-                              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">Launch intake interview form & issue security profile credentials.</p>
+                              <h4 className="font-bold text-xs text-[#023E8A] group-hover:text-[#0096C7]">Add Volunteer</h4>
+                              <p className="text-[10px] text-slate-600 mt-1 leading-relaxed">Launch intake interview form & issue security profile credentials.</p>
                             </div>
                           </button>
 
                           <button
                             onClick={() => setIsAddTaskOpen(true)}
-                            className="p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-slate-100/50 hover:border-slate-200 transition text-left flex items-start gap-4 cursor-pointer group min-h-[44px]"
+                            className="p-4 rounded-xl border border-white/50 bg-white/40 hover:bg-white/70 hover:border-white/80 transition text-left flex items-start gap-4 cursor-pointer group min-h-[44px]"
                           >
-                            <CheckSquare className="w-8 h-8 text-cyan shrink-0" />
+                            <CheckSquare className="w-8 h-8 text-[#0096C7] shrink-0" />
                             <div>
-                              <h4 className="font-bold text-xs text-deep group-hover:text-cyan">New Task</h4>
-                              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">Assign individual bio-indicator testing or cleanup safety checks.</p>
+                              <h4 className="font-bold text-xs text-[#023E8A] group-hover:text-[#0096C7]">New Task</h4>
+                              <p className="text-[10px] text-slate-600 mt-1 leading-relaxed">Assign individual bio-indicator testing or cleanup safety checks.</p>
                             </div>
                           </button>
 
                           <button
                             onClick={() => setIsBulkTaskOpen(true)}
-                            className="p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-slate-100/50 hover:border-slate-200 transition text-left flex items-start gap-4 cursor-pointer group min-h-[44px]"
+                            className="p-4 rounded-xl border border-white/50 bg-white/40 hover:bg-white/70 hover:border-white/80 transition text-left flex items-start gap-4 cursor-pointer group min-h-[44px]"
                           >
-                            <ListFilter className="w-8 h-8 text-cyan shrink-0" />
+                            <ListFilter className="w-8 h-8 text-[#0096C7] shrink-0" />
                             <div>
-                              <h4 className="font-bold text-xs text-deep group-hover:text-cyan">Bulk Site Task</h4>
-                              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">Broadcast tasks to all active volunteers matching a site preference.</p>
+                              <h4 className="font-bold text-xs text-[#023E8A] group-hover:text-[#0096C7]">Bulk Site Task</h4>
+                              <p className="text-[10px] text-slate-600 mt-1 leading-relaxed">Broadcast tasks to all active volunteers matching a site preference.</p>
                             </div>
                           </button>
 
                           <button
                             onClick={() => setIsBroadcastOpen(true)}
-                            className="p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-slate-100/50 hover:border-slate-200 transition text-left flex items-start gap-4 cursor-pointer group min-h-[44px]"
+                            className="p-4 rounded-xl border border-white/50 bg-white/40 hover:bg-white/70 hover:border-white/80 transition text-left flex items-start gap-4 cursor-pointer group min-h-[44px]"
                           >
-                            <Volume2 className="w-8 h-8 text-cyan shrink-0" />
+                            <Volume2 className="w-8 h-8 text-[#0096C7] shrink-0" />
                             <div>
-                              <h4 className="font-bold text-xs text-deep group-hover:text-cyan">Broadcast Msg</h4>
-                              <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">Broadcast messages instantly to site-specific groups or interest tags.</p>
+                              <h4 className="font-bold text-xs text-[#023E8A] group-hover:text-[#0096C7]">Broadcast Msg</h4>
+                              <p className="text-[10px] text-slate-600 mt-1 leading-relaxed">Broadcast messages instantly to site-specific groups or interest tags.</p>
                             </div>
                           </button>
                         </div>
                       </Card>
 
                       {/* Recent activity summary info */}
-                      <Card title="Active Field Roster Summary" subtitle="Roster outline for quick operational monitoring">
+                      <Card title="Active Field Roster Summary" subtitle="Roster outline for quick operational monitoring" glass="light">
                         {volunteers.length === 0 ? (
-                          <div className="text-center p-6 text-slate-400">
+                          <div className="text-center p-6 text-slate-500">
                             No volunteers assigned yet. Use "Add Volunteer" to register.
                           </div>
                         ) : (
                           <div className="flex flex-col gap-3">
                             {volunteers.slice(0, 4).map((vol) => (
-                              <div key={vol.profile_id} className="p-3 bg-slate-50 border border-slate-100 rounded-lg flex justify-between items-center text-xs">
+                              <div key={vol.profile_id} className="p-3.5 bg-white/40 border border-white/50 rounded-xl flex justify-between items-center text-xs">
                                 <div className="flex items-center gap-3">
                                   <Avatar name={vol.profile.full_name} size="sm" />
                                   <div>
-                                    <span className="font-bold text-deep block">{vol.profile.full_name}</span>
-                                    <span className="text-[10px] text-slate-400 block mt-0.5">{vol.site_name || "General"}</span>
+                                    <span className="font-bold text-[#023E8A] block">{vol.profile.full_name}</span>
+                                    <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">{vol.site_name || "General"}</span>
                                   </div>
                                 </div>
                                 <div className="text-right">
-                                  <span className="font-bold block text-slate-700">{vol.hours_logged}h</span>
+                                  <span className="font-bold block text-[#1B4965]">{vol.hours_logged}h</span>
                                   <Badge status={vol.status} className="text-[9px]" />
                                 </div>
                               </div>
@@ -1241,31 +1256,31 @@ export default function StaffDashboard() {
                       
                       {/* Column: To Do */}
                       <div className="flex flex-col gap-4">
-                        <div className="p-3 bg-slate-100 rounded-lg flex justify-between items-center">
-                          <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">To Do</span>
-                          <span className="px-2 py-0.5 bg-slate-200 rounded text-[10px] font-bold text-slate-600">
+                        <div className="p-3 bg-white/50 backdrop-blur-md rounded-xl border border-white/60 flex justify-between items-center shadow-xs text-[#1B4965]">
+                          <span className="text-xs font-bold uppercase tracking-wide">To Do</span>
+                          <span className="px-2.5 py-0.5 bg-white/60 rounded text-[10px] font-bold text-slate-700">
                             {tasks.filter(t => t.status === "todo").length}
                           </span>
                         </div>
 
-                        <div className="flex flex-col gap-3 min-h-[50vh] bg-slate-50/50 p-2 rounded-xl border border-slate-100">
+                        <div className="flex flex-col gap-3 min-h-[50vh] bg-white/30 backdrop-blur-md p-3 rounded-xl border border-white/40 shadow-inner">
                           {tasks.filter(t => t.status === "todo").length === 0 ? (
-                            <p className="text-xs text-slate-400 italic text-center py-8">No tasks here</p>
+                            <p className="text-xs text-slate-600 italic text-center py-8">No tasks here</p>
                           ) : (
                             tasks.filter(t => t.status === "todo").map((task) => (
-                              <div key={task.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-xs hover:border-slate-200 transition relative group">
+                              <div key={task.id} className="bg-white/80 p-4 rounded-xl border border-white/50 shadow-sm hover:bg-white/95 transition relative group text-[#1B4965]">
                                 <div className="flex justify-between items-start gap-2">
-                                  <span className="text-[10px] font-mono text-cyan font-bold">{task.volunteer_name}</span>
+                                  <span className="text-[10px] font-mono text-[#0096C7] font-bold">{task.volunteer_name}</span>
                                   <Badge status={task.priority} className="text-[9px] px-1.5 py-0" />
                                 </div>
-                                <h4 className="font-bold text-xs text-deep mt-2 leading-snug">{task.title}</h4>
-                                <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">{task.description}</p>
+                                <h4 className="font-bold text-xs text-[#023E8A] mt-2 leading-snug">{task.title}</h4>
+                                <p className="text-[10px] text-slate-600 mt-1 leading-relaxed">{task.description}</p>
                                 
-                                <div className="border-t border-slate-50 mt-3 pt-2.5 flex justify-between items-center text-[9px] text-slate-400 font-mono">
+                                <div className="border-t border-white/40 mt-3 pt-2.5 flex justify-between items-center text-[9px] text-slate-500 font-mono">
                                   <span>DUE: {new Date(task.due_date).toLocaleDateString()}</span>
                                   <div className="flex gap-1.5">
                                     <button onClick={() => { setTaskToDelete(task.id); setIsDeleteTaskConfirmOpen(true); }} className="text-coral hover:text-red-700 font-bold min-h-[32px] px-1.5 cursor-pointer">Delete</button>
-                                    <button onClick={() => handleMoveTaskStatus(task.id, "in_progress")} className="text-navy hover:text-deep font-bold min-h-[32px] px-1.5 cursor-pointer">Start &rarr;</button>
+                                    <button onClick={() => handleMoveTaskStatus(task.id, "in_progress")} className="text-[#023E8A] hover:text-[#1B4965] font-bold min-h-[32px] px-1.5 cursor-pointer">Start &rarr;</button>
                                   </div>
                                 </div>
                               </div>
@@ -1276,31 +1291,31 @@ export default function StaffDashboard() {
 
                       {/* Column: In Progress */}
                       <div className="flex flex-col gap-4">
-                        <div className="p-3 bg-sky-50 rounded-lg flex justify-between items-center">
-                          <span className="text-xs font-bold text-sky-800 uppercase tracking-wide">In Progress</span>
-                          <span className="px-2 py-0.5 bg-sky-100 rounded text-[10px] font-bold text-sky-700">
+                        <div className="p-3 bg-white/50 backdrop-blur-md rounded-xl border border-white/60 flex justify-between items-center shadow-xs text-[#023E8A]">
+                          <span className="text-xs font-bold uppercase tracking-wide">In Progress</span>
+                          <span className="px-2.5 py-0.5 bg-white/60 rounded text-[10px] font-bold text-slate-700">
                             {tasks.filter(t => t.status === "in_progress").length}
                           </span>
                         </div>
 
-                        <div className="flex flex-col gap-3 min-h-[50vh] bg-slate-50/50 p-2 rounded-xl border border-slate-100">
+                        <div className="flex flex-col gap-3 min-h-[50vh] bg-white/30 backdrop-blur-md p-3 rounded-xl border border-white/40 shadow-inner">
                           {tasks.filter(t => t.status === "in_progress").length === 0 ? (
-                            <p className="text-xs text-slate-400 italic text-center py-8">No active tasks</p>
+                            <p className="text-xs text-slate-600 italic text-center py-8">No active tasks</p>
                           ) : (
                             tasks.filter(t => t.status === "in_progress").map((task) => (
-                              <div key={task.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-xs hover:border-slate-200 transition relative">
+                              <div key={task.id} className="bg-white/80 p-4 rounded-xl border border-white/50 shadow-sm hover:bg-white/95 transition relative text-[#1B4965]">
                                 <div className="flex justify-between items-start gap-2">
-                                  <span className="text-[10px] font-mono text-cyan font-bold">{task.volunteer_name}</span>
+                                  <span className="text-[10px] font-mono text-[#0096C7] font-bold">{task.volunteer_name}</span>
                                   <Badge status={task.priority} className="text-[9px] px-1.5 py-0" />
                                 </div>
-                                <h4 className="font-bold text-xs text-deep mt-2 leading-snug">{task.title}</h4>
-                                <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">{task.description}</p>
+                                <h4 className="font-bold text-xs text-[#023E8A] mt-2 leading-snug">{task.title}</h4>
+                                <p className="text-[10px] text-slate-600 mt-1 leading-relaxed">{task.description}</p>
                                 
-                                <div className="border-t border-slate-50 mt-3 pt-2.5 flex justify-between items-center text-[9px] text-slate-400 font-mono">
+                                <div className="border-t border-white/40 mt-3 pt-2.5 flex justify-between items-center text-[9px] text-slate-500 font-mono">
                                   <span>DUE: {new Date(task.due_date).toLocaleDateString()}</span>
                                   <div className="flex gap-1.5">
-                                    <button onClick={() => handleMoveTaskStatus(task.id, "todo")} className="text-slate-400 hover:text-slate-600 font-bold min-h-[32px] px-1.5 cursor-pointer">&larr; Back</button>
-                                    <button onClick={() => handleMoveTaskStatus(task.id, "done")} className="text-emerald-600 hover:text-emerald-700 font-bold min-h-[32px] px-1.5 cursor-pointer">Finish &rarr;</button>
+                                    <button onClick={() => handleMoveTaskStatus(task.id, "todo")} className="text-slate-500 hover:text-slate-700 font-bold min-h-[32px] px-1.5 cursor-pointer">&larr; Back</button>
+                                    <button onClick={() => handleMoveTaskStatus(task.id, "done")} className="text-emerald-700 hover:text-emerald-800 font-bold min-h-[32px] px-1.5 cursor-pointer">Finish &rarr;</button>
                                   </div>
                                 </div>
                               </div>
@@ -1311,29 +1326,29 @@ export default function StaffDashboard() {
 
                       {/* Column: Done */}
                       <div className="flex flex-col gap-4">
-                        <div className="p-3 bg-emerald-50 rounded-lg flex justify-between items-center">
-                          <span className="text-xs font-bold text-emerald-800 uppercase tracking-wide">Done</span>
-                          <span className="px-2 py-0.5 bg-emerald-100 rounded text-[10px] font-bold text-emerald-700">
+                        <div className="p-3 bg-white/50 backdrop-blur-md rounded-xl border border-white/60 flex justify-between items-center shadow-xs text-[#1B4965]">
+                          <span className="text-xs font-bold uppercase tracking-wide">Done</span>
+                          <span className="px-2.5 py-0.5 bg-white/60 rounded text-[10px] font-bold text-slate-700">
                             {tasks.filter(t => t.status === "done").length}
                           </span>
                         </div>
 
-                        <div className="flex flex-col gap-3 min-h-[50vh] bg-slate-50/50 p-2 rounded-xl border border-slate-100">
+                        <div className="flex flex-col gap-3 min-h-[50vh] bg-white/30 backdrop-blur-md p-3 rounded-xl border border-white/40 shadow-inner">
                           {tasks.filter(t => t.status === "done").length === 0 ? (
-                            <p className="text-xs text-slate-400 italic text-center py-8">No completed tasks yet</p>
+                            <p className="text-xs text-slate-600 italic text-center py-8">No completed tasks yet</p>
                           ) : (
                             tasks.filter(t => t.status === "done").map((task) => (
-                              <div key={task.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-xs hover:border-slate-200 transition relative opacity-75">
+                              <div key={task.id} className="bg-white/60 p-4 rounded-xl border border-white/50 shadow-sm hover:bg-white/95 transition relative opacity-75 text-slate-500">
                                 <div className="flex justify-between items-start gap-2">
-                                  <span className="text-[10px] font-mono text-cyan font-bold">{task.volunteer_name}</span>
+                                  <span className="text-[10px] font-mono text-[#0096C7] font-bold">{task.volunteer_name}</span>
                                   <Badge status="done" className="text-[9px] px-1.5 py-0" />
                                 </div>
-                                <h4 className="font-bold text-xs text-deep mt-2 leading-snug line-through text-slate-400">{task.title}</h4>
-                                <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">{task.description}</p>
+                                <h4 className="font-bold text-xs text-slate-400 mt-2 leading-snug line-through">{task.title}</h4>
+                                <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">{task.description}</p>
                                 
-                                <div className="border-t border-slate-50 mt-3 pt-2.5 flex justify-between items-center text-[9px] text-slate-400 font-mono">
+                                <div className="border-t border-white/40 mt-3 pt-2.5 flex justify-between items-center text-[9px] text-slate-400 font-mono">
                                   <span>COMPLETED</span>
-                                  <button onClick={() => handleMoveTaskStatus(task.id, "in_progress")} className="text-sky-600 hover:text-sky-700 font-bold min-h-[32px] px-1.5 cursor-pointer">&larr; Re-open</button>
+                                  <button onClick={() => handleMoveTaskStatus(task.id, "in_progress")} className="text-[#0096C7] hover:text-[#023E8A] font-bold min-h-[32px] px-1.5 cursor-pointer">&larr; Re-open</button>
                                 </div>
                               </div>
                             ))
@@ -1408,31 +1423,31 @@ export default function StaffDashboard() {
                         {opportunities.map((opp) => {
                           const isCompleted = opp.status === "completed";
                           return (
-                            <div key={opp.id} className={`bg-white rounded-xl border border-slate-100 overflow-hidden shadow-xs hover:shadow-md transition-all ${isCompleted ? "opacity-75" : ""}`}>
+                            <div key={opp.id} className={`bg-white/45 backdrop-blur-md rounded-xl border border-white/50 overflow-hidden shadow-sm hover:shadow-md transition-all text-[#1B4965] ${isCompleted ? "opacity-75" : ""}`}>
                               <div className="p-5">
                                 <div className="flex justify-between items-start">
                                   <Badge status={opp.status} />
-                                  <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wide">{opp.commitment_label}</span>
+                                  <span className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wide">{opp.commitment_label}</span>
                                 </div>
 
-                                <h3 className="font-serif font-bold text-base text-deep mt-3">{opp.title}</h3>
-                                <p className="text-xs text-slate-500 mt-2 leading-relaxed">{opp.description}</p>
+                                <h3 className="font-serif font-bold text-base text-[#023E8A] mt-3">{opp.title}</h3>
+                                <p className="text-xs text-slate-600 mt-2 leading-relaxed">{opp.description}</p>
 
-                                <div className="border-t border-slate-50 mt-4 pt-3 flex flex-wrap gap-x-4 gap-y-2 text-[10px] text-slate-400 font-mono">
-                                  <div>SITE: <span className="font-bold text-slate-600">{opp.site?.name || "Multiple"}</span></div>
-                                  <div>DATE: <span className="font-bold text-slate-600">{new Date(opp.date).toLocaleDateString()}</span></div>
-                                  <div>CAPACITY: <span className="font-bold text-slate-600">{opp.signup_count}/{opp.capacity}</span></div>
+                                <div className="border-t border-white/40 mt-4 pt-3 flex flex-wrap gap-x-4 gap-y-2 text-[10px] text-slate-500 font-mono">
+                                  <div>SITE: <span className="font-bold text-slate-700">{opp.site?.name || "Multiple"}</span></div>
+                                  <div>DATE: <span className="font-bold text-slate-700">{new Date(opp.date).toLocaleDateString()}</span></div>
+                                  <div>CAPACITY: <span className="font-bold text-slate-700">{opp.signup_count}/{opp.capacity}</span></div>
                                 </div>
                               </div>
 
-                              <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex justify-between items-center text-xs">
-                                <span className="text-[10px] font-mono font-bold text-slate-400">SIGNUPS: {opp.signup_count}</span>
+                              <div className="bg-white/30 px-5 py-3 border-t border-white/40 flex justify-between items-center text-xs">
+                                <span className="text-[10px] font-mono font-bold text-slate-500">SIGNUPS: {opp.signup_count}</span>
                                 {!isCompleted ? (
                                   <Button variant="secondary" onClick={() => handleOpenCompleteCampaign(opp)} className="text-[11px] py-3 px-4 min-h-[44px]">
                                     Complete & Log Hours
                                   </Button>
                                 ) : (
-                                  <span className="text-xs font-semibold text-emerald-600 inline-flex items-center gap-1.5">
+                                  <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1.5 font-bold">
                                     <CheckCircle2 className="w-4 h-4" />
                                     Campaign Logged
                                   </span>
@@ -1461,16 +1476,16 @@ export default function StaffDashboard() {
                       </Button>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 bg-white border border-slate-100 rounded-xl overflow-hidden h-[65vh]">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 bg-white/45 backdrop-blur-md border border-white/50 rounded-xl overflow-hidden h-[65vh] shadow-sm">
                       
                       {/* Conversations Side Menu */}
-                      <div className="lg:col-span-1 border-r border-slate-100 overflow-y-auto flex flex-col divide-y divide-slate-50 bg-slate-50/20">
-                        <div className="p-4 bg-slate-50 text-xs font-bold text-deep uppercase tracking-wider font-mono shrink-0">
+                      <div className="lg:col-span-1 border-r border-white/30 overflow-y-auto flex flex-col divide-y divide-white/20 bg-white/10">
+                        <div className="p-4 bg-white/25 text-xs font-bold text-[#023E8A] uppercase tracking-wider font-mono shrink-0 border-b border-white/25">
                           My Thread Contacts
                         </div>
 
                         {volunteers.length === 0 ? (
-                          <div className="p-6 text-center text-xs text-slate-400 italic">
+                          <div className="p-6 text-center text-xs text-slate-500 italic">
                             No volunteers to chat with yet.
                           </div>
                         ) : (
@@ -1484,20 +1499,20 @@ export default function StaffDashboard() {
                               <div
                                 key={vol.profile_id}
                                 onClick={() => setActiveThreadVolId(vol.profile_id)}
-                                className={`p-4 flex items-center justify-between cursor-pointer hover:bg-slate-50/50 transition ${activeThreadVolId === vol.profile_id ? "bg-slate-50" : ""}`}
+                                className={`p-4 flex items-center justify-between cursor-pointer hover:bg-white/25 transition ${activeThreadVolId === vol.profile_id ? "bg-white/35" : ""}`}
                               >
                                 <div className="flex items-center gap-3 min-w-0">
                                   <Avatar name={vol.profile.full_name} size="sm" />
                                   <div className="min-w-0">
-                                    <span className="font-semibold text-deep text-xs block truncate">{vol.profile.full_name}</span>
-                                    <span className="text-[10px] text-slate-400 block truncate max-w-[150px] mt-0.5">
+                                    <span className="font-semibold text-[#023E8A] text-xs block truncate">{vol.profile.full_name}</span>
+                                    <span className="text-[10px] text-slate-500 block truncate max-w-[150px] mt-0.5 font-medium">
                                       {lastMsg ? lastMsg.body : "No messages yet"}
                                     </span>
                                   </div>
                                 </div>
 
                                 {hasUnread && (
-                                  <span className="w-2.5 h-2.5 rounded-full bg-cyan shrink-0 ml-2" />
+                                  <span className="w-2.5 h-2.5 rounded-full bg-[#0096C7] shrink-0 ml-2" />
                                 )}
                               </div>
                             );
@@ -1506,16 +1521,16 @@ export default function StaffDashboard() {
                       </div>
 
                       {/* Conversation thread box */}
-                      <div className="lg:col-span-2 flex flex-col h-full justify-between bg-slate-50/30 min-w-0">
+                      <div className="lg:col-span-2 flex flex-col h-full justify-between bg-white/5 min-w-0">
                         {activeVolProfile ? (
                           <>
                             {/* Thread header */}
-                            <div className="px-6 py-4 bg-white border-b border-slate-100 flex justify-between items-center shrink-0">
+                            <div className="px-6 py-4 bg-white/40 border-b border-white/45 flex justify-between items-center shrink-0">
                               <div className="flex items-center gap-3">
                                 <Avatar name={activeVolProfile.full_name} size="sm" />
                                 <div>
-                                  <span className="font-bold text-deep text-xs block leading-none">{activeVolProfile.full_name}</span>
-                                  <span className="text-[10px] text-slate-400 font-mono tracking-wider mt-1 block">SECURE DIRECT 1:1 LINE</span>
+                                  <span className="font-bold text-[#023E8A] text-xs block leading-none">{activeVolProfile.full_name}</span>
+                                  <span className="text-[10px] text-slate-500 font-mono tracking-wider mt-1.5 block">SECURE DIRECT 1:1 LINE</span>
                                 </div>
                               </div>
                             </div>
@@ -1524,7 +1539,7 @@ export default function StaffDashboard() {
                             <div className="flex-1 p-6 overflow-y-auto flex flex-col gap-3">
                               {activeThread.length === 0 ? (
                                 <div className="h-full flex items-center justify-center text-center">
-                                  <p className="text-xs text-slate-400 italic">No historical messages found. Begin conversation below.</p>
+                                  <p className="text-xs text-slate-500 italic">No historical messages found. Begin conversation below.</p>
                                 </div>
                               ) : (
                                 activeThread.map((msg) => {
@@ -1534,8 +1549,8 @@ export default function StaffDashboard() {
                                       key={msg.id}
                                       className={`max-w-[75%] p-3.5 rounded-xl text-xs leading-relaxed ${
                                         isMe
-                                          ? "bg-navy text-white rounded-br-none self-end shadow-xs"
-                                          : "bg-white text-slate-800 border border-slate-100 rounded-bl-none self-start shadow-xs"
+                                          ? "bg-[#023E8A] text-white rounded-br-none self-end shadow-xs"
+                                          : "bg-white/80 text-[#1B4965] border border-white/50 backdrop-blur-md rounded-bl-none self-start shadow-xs"
                                       }`}
                                     >
                                       <p>{msg.body}</p>
@@ -1550,18 +1565,18 @@ export default function StaffDashboard() {
                             </div>
 
                             {/* Msg input */}
-                            <form onSubmit={handleSendStaffMessage} className="bg-white border-t border-slate-100 p-4 flex gap-3 shrink-0">
+                            <form onSubmit={handleSendStaffMessage} className="bg-white/40 border-t border-white/45 p-4 flex gap-3 shrink-0">
                               <input
                                 type="text"
                                 placeholder={`Type direct message to ${activeVolProfile.full_name}...`}
                                 value={newStaffMessage}
                                 onChange={(e) => setNewStaffMessage(e.target.value)}
-                                className="flex-1 px-4 py-3 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan min-h-[44px]"
+                                className="flex-1 px-4 py-3 text-xs border border-white/50 bg-white/70 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0096C7] min-h-[44px]"
                               />
                               <button
                                 type="submit"
                                 disabled={!newStaffMessage.trim() || isSendingMessage}
-                                className="px-5 py-3 bg-navy hover:bg-deep disabled:opacity-50 text-white rounded-lg text-xs font-bold shrink-0 transition inline-flex items-center gap-1.5 cursor-pointer min-h-[44px]"
+                                className="px-5 py-3 bg-[#023E8A] hover:bg-[#1B4965] disabled:opacity-50 text-white rounded-xl text-xs font-bold shrink-0 transition inline-flex items-center gap-1.5 cursor-pointer min-h-[44px]"
                               >
                                 Send
                                 <Send className="w-3.5 h-3.5" />
@@ -1571,9 +1586,9 @@ export default function StaffDashboard() {
                         ) : (
                           <div className="h-full flex items-center justify-center text-center p-8">
                             <div>
-                              <MessageSquare className="w-10 h-10 text-slate-300 mx-auto mb-2 animate-pulse" />
-                              <h4 className="font-serif font-bold text-deep text-sm">Select Conversation</h4>
-                              <p className="text-xs text-slate-400 max-w-xs mx-auto mt-1">Select an active volunteer from the left contact list to establish a direct secure message channel.</p>
+                              <MessageSquare className="w-10 h-10 text-slate-400 mx-auto mb-2 animate-pulse" />
+                              <h4 className="font-serif font-bold text-[#023E8A] text-sm">Select Conversation</h4>
+                              <p className="text-xs text-slate-500 max-w-xs mx-auto mt-1 leading-relaxed">Select an active volunteer from the left contact list to establish a direct secure message channel.</p>
                             </div>
                           </div>
                         )}
@@ -1772,7 +1787,12 @@ export default function StaffDashboard() {
             label="Assignee Volunteer *"
             value={taskAssigneeId}
             onChange={(e) => setTaskAssigneeId(e.target.value)}
-            options={volunteers.map(v => ({ value: v.profile_id, label: `${v.profile.full_name} (${v.volunteer_code})` }))}
+            options={volunteers
+              .filter(v => v && v.profile)
+              .map(v => ({
+                value: v.profile_id,
+                label: `${v.profile?.full_name || "Unknown User"} (${v.volunteer_code || ""})`
+              }))}
           />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

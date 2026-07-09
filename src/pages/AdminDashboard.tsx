@@ -144,13 +144,15 @@ export default function AdminDashboard() {
         return acc;
       }, {});
 
-      const mappedVols: VolunteerWithProfile[] = (volsData || []).map(v => ({
-        ...v,
-        profile: v.profile,
-        site_name: v.site?.name,
-        site_preference: v.site?.name || "General Support",
-        coordinator_name: coordMap[v.coordinator_id] || "Unassigned"
-      }));
+      const mappedVols: VolunteerWithProfile[] = (volsData || [])
+        .filter(v => v && v.profile)
+        .map(v => ({
+          ...v,
+          profile: v.profile,
+          site_name: v.site?.name,
+          site_preference: v.site?.name || "General Support",
+          coordinator_name: coordMap[v.coordinator_id] || "Unassigned"
+        }));
 
       // 3. Fetch opportunities join sites
       const { data: oppsData, error: oppsErr } = await supabase
@@ -196,18 +198,20 @@ export default function AdminDashboard() {
       const mappedLogs: ActivityLog[] = logsData || [];
 
       // Structure StaffListWithProfile
-      const mappedStaff: StaffWithProfile[] = (staffData || []).map(s => {
-        const count = mappedVols.filter(v => v.coordinator_id === s.id).length;
-        return {
-          profile: s,
-          details: {
-            profile_id: s.id,
-            assigned_region: s.email.includes("amit") ? "Lakshadweep" : "Navi Mumbai",
-            created_by_admin_id: user!.id
-          },
-          volunteer_count: count
-        };
-      });
+      const mappedStaff: StaffWithProfile[] = (staffData || [])
+        .filter(s => s && s.id)
+        .map(s => {
+          const count = mappedVols.filter(v => v && v.coordinator_id === s.id).length;
+          return {
+            profile: s,
+            details: {
+              profile_id: s.id,
+              assigned_region: s.email && s.email.includes("amit") ? "Lakshadweep" : "Navi Mumbai",
+              created_by_admin_id: user?.id || ""
+            },
+            volunteer_count: count
+          };
+        });
 
       // Calculate totals
       const totalVols = mappedVols.length;
@@ -218,7 +222,8 @@ export default function AdminDashboard() {
 
       const volunteersByCoord: Record<string, number> = {};
       mappedStaff.forEach(s => {
-        volunteersByCoord[s.profile.full_name] = s.volunteer_count;
+        const coordName = s.profile?.full_name || "Unknown Coordinator";
+        volunteersByCoord[coordName] = s.volunteer_count;
       });
 
       setVolunteers(mappedVols);
@@ -227,7 +232,7 @@ export default function AdminDashboard() {
       setActivityLogs(mappedLogs);
       setStaffList(mappedStaff);
 
-      if (mappedStaff.length > 0) {
+      if (mappedStaff.length > 0 && mappedStaff[0]?.profile) {
         setTargetCoordId(mappedStaff[0].profile.id);
       }
 
@@ -414,7 +419,7 @@ export default function AdminDashboard() {
 
       if (error) throw new Error(error.message);
 
-      const designatedName = staffList.find(s => s.profile.id === targetCoordId)?.profile.full_name || "New Coordinator";
+      const designatedName = staffList.find(s => s?.profile?.id === targetCoordId)?.profile?.full_name || "New Coordinator";
       await supabase.from("activity_log").insert({
         profile_id: user!.id,
         action_type: "BULK_REASSIGN",
@@ -501,18 +506,24 @@ export default function AdminDashboard() {
   };
 
   // Filtering
-  const filteredVolunteers = volunteers.filter((v) => {
-    const matchesSearch = 
-      v.profile.full_name.toLowerCase().includes(filterSearch.toLowerCase()) ||
-      v.volunteer_code.toLowerCase().includes(filterSearch.toLowerCase()) ||
-      v.profile.email.toLowerCase().includes(filterSearch.toLowerCase());
-    
-    const matchesCoord = filterCoordinator === "all" || v.coordinator_id === filterCoordinator;
-    const matchesSite = filterSite === "all" || v.site_preference === filterSite;
-    const matchesStatus = filterStatus === "all" || v.status === filterStatus;
+  const filteredVolunteers = volunteers
+    .filter((v) => v && v.profile)
+    .filter((v) => {
+      const fullName = v.profile?.full_name || "Unknown User";
+      const email = v.profile?.email || "";
+      const volunteerCode = v.volunteer_code || "";
+      
+      const matchesSearch = 
+        fullName.toLowerCase().includes(filterSearch.toLowerCase()) ||
+        volunteerCode.toLowerCase().includes(filterSearch.toLowerCase()) ||
+        email.toLowerCase().includes(filterSearch.toLowerCase());
+      
+      const matchesCoord = filterCoordinator === "all" || v.coordinator_id === filterCoordinator;
+      const matchesSite = filterSite === "all" || v.site_preference === filterSite;
+      const matchesStatus = filterStatus === "all" || v.status === filterStatus;
 
-    return matchesSearch && matchesCoord && matchesSite && matchesStatus;
-  });
+      return matchesSearch && matchesCoord && matchesSite && matchesStatus;
+    });
 
   const chartData = stats.volunteersByCoord ? Object.entries(stats.volunteersByCoord) : [];
 
@@ -817,7 +828,12 @@ export default function AdminDashboard() {
                           onChange={(e) => setFilterCoordinator(e.target.value)}
                           options={[
                             { value: "all", label: "All Coordinators" },
-                            ...staffList.map(st => ({ value: st.profile.id, label: st.profile.full_name }))
+                            ...staffList
+                              .filter(st => st && st.profile)
+                              .map(st => ({
+                                value: st.profile?.id || "",
+                                label: st.profile?.full_name || "Unknown User"
+                              }))
                           ]}
                         />
                       </div>
@@ -1194,7 +1210,12 @@ export default function AdminDashboard() {
             label="Designate Coordinator Staff *"
             value={targetCoordId}
             onChange={(e) => setTargetCoordId(e.target.value)}
-            options={staffList.map(st => ({ value: st.profile.id, label: st.profile.full_name }))}
+            options={staffList
+              .filter(st => st && st.profile)
+              .map(st => ({
+                value: st.profile?.id || "",
+                label: st.profile?.full_name || "Unknown User"
+              }))}
           />
 
           <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-slate-100">
