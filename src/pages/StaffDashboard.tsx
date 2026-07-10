@@ -18,7 +18,8 @@ import {
   Site, 
   Profile, 
   VolunteerAvailability,
-  JoinRequest
+  JoinRequest,
+  VolunteerApplication
 } from "../types";
 import { supabase } from "../supabaseClient";
 
@@ -53,7 +54,7 @@ export default function StaffDashboard() {
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<
-    "overview" | "volunteers" | "tasks" | "opportunities" | "requests" | "messages" | "analytics"
+    "overview" | "volunteers" | "tasks" | "opportunities" | "requests" | "messages" | "analytics" | "applications"
   >("overview");
   const [loading, setLoading] = useState(true);
   const [errorState, setErrorState] = useState<string | null>(null);
@@ -67,6 +68,7 @@ export default function StaffDashboard() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
+  const [applications, setApplications] = useState<VolunteerApplication[]>([]);
   const [stats, setStats] = useState<any>({
     totalVolunteers: 0,
     activeThisWeek: 0,
@@ -83,6 +85,16 @@ export default function StaffDashboard() {
   const [isCompleteOppOpen, setIsCompleteOppOpen] = useState(false);
   const [isSendInviteOpen, setIsSendInviteOpen] = useState(false);
   const [selectedOppForComplete, setSelectedOppForComplete] = useState<OpportunityWithSite | null>(null);
+
+  // Log Hours and Certificate states (Part 5 Additions)
+  const [isLogHoursOpen, setIsLogHoursOpen] = useState(false);
+  const [selectedVolForHours, setSelectedVolForHours] = useState<VolunteerWithProfile | null>(null);
+  const [hoursToAdd, setHoursToAdd] = useState("");
+  const [hoursDesc, setHoursDesc] = useState("");
+  const [hoursDate, setHoursDate] = useState(new Date().toISOString().split("T")[0]);
+  const [isSubmittingLogHours, setIsSubmittingLogHours] = useState(false);
+  const [isCertOpen, setIsCertOpen] = useState(false);
+  const [selectedVolForCert, setSelectedVolForCert] = useState<VolunteerWithProfile | null>(null);
 
   // Credentials confirmation modal
   const [credentialsModalOpen, setCredentialsModalOpen] = useState(false);
@@ -263,6 +275,15 @@ export default function StaffDashboard() {
       }
       setJoinRequests(enrichedRequests);
 
+      // 6. Fetch volunteer applications
+      const { data: appsData, error: appsErr } = await supabase
+        .from("volunteer_applications")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (appsErr) throw new Error(appsErr.message);
+      setApplications(appsData || []);
+
       // Defaults
       if (sitesData && sitesData.length > 0) {
         setVolSitePref(sitesData[0].id);
@@ -440,6 +461,178 @@ export default function StaffDashboard() {
       showToast(err.message || "Failed to register volunteer", "error");
     } finally {
       setIsSubmittingVol(false);
+    }
+  };
+
+  // Approve a Volunteer Application (Part 5 Additions)
+  const handleApproveApplication = async (app: VolunteerApplication) => {
+    try {
+      const generateTempPassword = () => {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+        return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('') + '!';
+      };
+      const tempPassword = generateTempPassword();
+
+      // Sign up on Supabase Auth
+      const { data: authData, error: authErr } = await supabase.auth.signUp({
+        email: app.email,
+        password: tempPassword,
+      });
+
+      if (authErr) throw new Error(authErr.message);
+      if (!authData.user) throw new Error("Could not create authentication profile");
+
+      // Create profile row
+      const { error: profileErr } = await supabase.from("profiles").insert({
+        id: authData.user.id,
+        role: "volunteer",
+        full_name: app.full_name,
+        email: app.email,
+        phone: app.phone || "",
+        must_reset_password: true
+      });
+
+      if (profileErr) throw new Error(profileErr.message);
+
+      // Match site preference ID from site list
+      const matchedSite = sites.find(s => s.name === app.site_preference) || sites[0];
+
+      // Create volunteer row
+      const volCode = `OSI-VOL-${String(Math.floor(1000 + Math.random() * 9000))}`;
+      const { error: volErr } = await supabase.from("volunteers").insert({
+        profile_id: authData.user.id,
+        coordinator_id: user!.id,
+        site_preference_id: matchedSite?.id || null,
+        interests: app.interests || [],
+        availability: app.availability || "Weekend warrior",
+        how_heard: app.how_heard || "Other",
+        status: "active",
+        hours_logged: 0,
+        volunteer_code: volCode,
+        emergency_contact: "N/A"
+      });
+
+      if (volErr) throw new Error(volErr.message);
+
+      // Update volunteer applications row
+      const { error: updateAppErr } = await supabase
+        .from("volunteer_applications")
+        .update({
+          status: "approved",
+          reviewed_by: user!.id,
+          reviewed_at: new Date().toISOString()
+        })
+        .eq("id", app.id);
+
+      if (updateAppErr) throw new Error(updateAppErr.message);
+
+      // Add to activity log
+      await supabase.from("activity_log").insert({
+        profile_id: user!.id,
+        action_type: "APPLICATION_APPROVED",
+        description: `Approved volunteer application for ${app.full_name} (${volCode})`
+      });
+
+      setCreatedCredentials({
+        volunteer_code: volCode,
+        email: app.email,
+        password: tempPassword
+      });
+      setCredentialsModalOpen(true);
+      showToast(`Application for ${app.full_name} approved! Security profile created.`, "success");
+      loadAllData();
+    } catch (err: any) {
+      showToast(err.message || "Application approval failed", "error");
+    }
+  };
+
+  // Decline a Volunteer Application (Part 5 Additions)
+  const handleDeclineApplication = async (appId: string) => {
+    try {
+      const { error } = await supabase
+        .from("volunteer_applications")
+        .update({
+          status: "declined",
+          reviewed_by: user!.id,
+          reviewed_at: new Date().toISOString()
+        })
+        .eq("id", appId);
+
+      if (error) throw new Error(error.message);
+
+      showToast("Application declined.", "info");
+      loadAllData();
+    } catch (err: any) {
+      showToast(err.message || "Failed to decline application", "error");
+    }
+  };
+
+  // Log arbitrary hours for a selected volunteer (Part 5 Additions)
+  const handleLogHoursSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedVolForHours || !hoursToAdd || !hoursDesc.trim() || !hoursDate) {
+      showToast("Please fill in all hours log fields", "error");
+      return;
+    }
+
+    setIsSubmittingLogHours(true);
+    try {
+      const hoursCount = parseInt(hoursToAdd);
+      if (isNaN(hoursCount) || hoursCount <= 0) {
+        throw new Error("Please enter a valid positive number of hours");
+      }
+
+      // 1. Insert into hours_log table
+      const { error: logErr } = await supabase.from("hours_log").insert({
+        volunteer_id: selectedVolForHours.profile_id,
+        logged_by_staff_id: user!.id,
+        hours: hoursCount,
+        hours_count: hoursCount,
+        activity_date: hoursDate,
+        description: hoursDesc.trim()
+      });
+
+      if (logErr) throw new Error(logErr.message);
+
+      // 2. Increment volunteers.hours_logged
+      const nextHrs = (selectedVolForHours.hours_logged || 0) + hoursCount;
+      const { error: volErr } = await supabase
+        .from("volunteers")
+        .update({ hours_logged: nextHrs })
+        .eq("profile_id", selectedVolForHours.profile_id);
+
+      if (volErr) throw new Error(volErr.message);
+
+      // 3. Send Notification to volunteer
+      await supabase.from("notifications").insert({
+        user_id: selectedVolForHours.profile_id,
+        type: "request_accepted",
+        title: "Volunteer Hours Logged",
+        body: `Your coordinator logged ${hoursCount} conservation hours: "${hoursDesc.trim()}".`,
+        read: false
+      });
+
+      // 4. Log in activity_log table (resilient name)
+      try {
+        await supabase.from("activity_log").insert({
+          profile_id: user!.id,
+          action_type: "HOURS_LOGGED",
+          description: `Logged ${hoursCount} hours for ${selectedVolForHours.profile?.full_name || "Volunteer"}`
+        });
+      } catch (e) {
+        console.warn("Could not write to activity log", e);
+      }
+
+      setIsLogHoursOpen(false);
+      setSelectedVolForHours(null);
+      setHoursToAdd("");
+      setHoursDesc("");
+      showToast(`Successfully logged ${hoursCount} hours!`, "success");
+      loadAllData();
+    } catch (err: any) {
+      showToast(err.message || "Failed to log hours", "error");
+    } finally {
+      setIsSubmittingLogHours(false);
     }
   };
 
@@ -911,6 +1104,7 @@ export default function StaffDashboard() {
                     {[
                       { tab: "overview", label: "Dashboard Stats", icon: <CheckCircle2 className="w-4 h-4" /> },
                       { tab: "volunteers", label: "My Volunteers Set", icon: <Users className="w-4 h-4" /> },
+                      { tab: "applications", label: "Volunteer Apps", icon: <FolderDot className="w-4 h-4" /> },
                       { tab: "tasks", label: "Task Assigner", icon: <ClipboardCheck className="w-4 h-4" /> },
                       { tab: "opportunities", label: "Drives & Campaigns", icon: <Calendar className="w-4 h-4" /> },
                       { tab: "requests", label: "Requests & Invites", icon: <Bell className="w-4 h-4" /> },
@@ -954,6 +1148,7 @@ export default function StaffDashboard() {
             {[
               { tab: "overview", label: "Overview", icon: <CheckCircle2 className="w-4 h-4" /> },
               { tab: "volunteers", label: "My Volunteers Set", icon: <Users className="w-4 h-4" /> },
+              { tab: "applications", label: "Volunteer Apps", icon: <FolderDot className="w-4 h-4" /> },
               { tab: "tasks", label: "Task Assigner", icon: <ClipboardCheck className="w-4 h-4" /> },
               { tab: "opportunities", label: "Drives & Campaigns", icon: <Calendar className="w-4 h-4" /> },
               { tab: "requests", label: "Requests & Invites", icon: <Bell className="w-4 h-4" /> },
@@ -1136,9 +1331,37 @@ export default function StaffDashboard() {
                               </div>
                             </div>
 
-                            <div className="mt-4 pt-3 border-t border-slate-50 flex justify-between items-center text-xs">
-                              <span className="text-slate-400">Logged Contribution:</span>
-                              <span className="font-bold text-emerald-600">{v.hours_logged || 0}h logged</span>
+                            <div className="mt-4 pt-3 border-t border-slate-50 flex flex-col gap-2">
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="text-slate-400">Logged Contribution:</span>
+                                <span className="font-bold text-emerald-600">{v.hours_logged || 0}h logged</span>
+                              </div>
+                              <div className="flex gap-2 mt-1">
+                                <Button
+                                  variant="secondary"
+                                  onClick={() => {
+                                    setSelectedVolForHours(v);
+                                    setIsLogHoursOpen(true);
+                                  }}
+                                  className="flex-1 py-1 px-2 text-[11px] min-h-[32px] justify-center"
+                                >
+                                  Log Hours
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setSelectedVolForCert(v);
+                                    setIsCertOpen(true);
+                                  }}
+                                  className={`flex-1 py-1 px-2 text-[11px] min-h-[32px] justify-center border ${
+                                    v.hours_logged >= 10 
+                                      ? "bg-[#0096C7]/10 hover:bg-[#0096C7]/20 text-[#023E8A] border-[#0096C7]/30" 
+                                      : "bg-slate-50 hover:bg-slate-100 text-slate-400 border-slate-200"
+                                  }`}
+                                >
+                                  Certificate
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         );
@@ -1314,6 +1537,95 @@ export default function StaffDashboard() {
                         })}
                         {joinRequests.length === 0 && (
                           <div className="p-12 text-center text-slate-400 italic text-xs">No active promotion requests or invites log.</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* --- TAB: APPLICATIONS (Part 5 Additions) --- */}
+                {activeTab === "applications" && (
+                  <div className="flex flex-col gap-6">
+                    <div>
+                      <h2 className="font-serif font-bold text-xl text-[#023E8A]">Volunteer Applications</h2>
+                      <p className="text-xs text-slate-400 mt-0.5">Review and approve enrollment requests from prospective coastal restoration volunteers.</p>
+                    </div>
+
+                    <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+                      <div className="p-4 bg-slate-50 border-b border-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Prospective Volunteer Applications
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {applications.map(app => (
+                          <div key={app.id} className="p-5 flex flex-col gap-4">
+                            <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+                              <div className="flex gap-3">
+                                <Avatar name={app.full_name} size="md" />
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <h3 className="font-bold text-sm text-[#1B4965]">{app.full_name}</h3>
+                                    <span className="text-[10px] text-slate-400 font-mono">({app.email})</span>
+                                    <Badge status={app.status as any} />
+                                  </div>
+                                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500 mt-1 font-mono">
+                                    {app.phone && <div>PHONE: <span className="font-semibold text-slate-700">{app.phone}</span></div>}
+                                    <div>PREF SITE: <span className="font-semibold text-slate-700">{app.site_preference || "Any"}</span></div>
+                                    <div>AVAILABILITY: <span className="font-semibold text-slate-700">{app.availability || "N/A"}</span></div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="text-right text-[10px] text-slate-400 font-mono shrink-0">
+                                Received: {new Date(app.created_at).toLocaleDateString()}
+                              </div>
+                            </div>
+
+                            {/* Application Details */}
+                            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 text-xs text-slate-600 space-y-2">
+                              {app.message && (
+                                <p className="leading-relaxed">
+                                  <span className="font-semibold text-slate-700 block mb-1">Cover Message:</span>
+                                  "{app.message}"
+                                </p>
+                              )}
+                              {app.interests && app.interests.length > 0 && (
+                                <div className="flex flex-wrap gap-1 items-center mt-1">
+                                  <span className="font-semibold text-slate-700 mr-1">Interests:</span>
+                                  {app.interests.map(interest => (
+                                    <Chip key={interest} label={interest} color="blue" size="sm" />
+                                  ))}
+                                </div>
+                              )}
+                              {app.how_heard && (
+                                <p className="text-[11px] text-slate-400 italic">
+                                  How heard: {app.how_heard}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Action Buttons */}
+                            {app.status === "pending" && (
+                              <div className="flex justify-end gap-2 mt-1">
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => handleDeclineApplication(app.id)}
+                                  className="text-xs py-2 px-4 hover:bg-rose-50 hover:text-rose-600 hover:bg-opacity-80"
+                                >
+                                  Decline
+                                </Button>
+                                <Button
+                                  onClick={() => handleApproveApplication(app)}
+                                  className="text-xs py-2 px-4 bg-[#0096C7] hover:bg-[#023E8A]"
+                                >
+                                  Approve & Enroll
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+
+                        {applications.length === 0 && (
+                          <div className="p-12 text-center text-slate-400 italic text-xs">No volunteer applications found.</div>
                         )}
                       </div>
                     </div>
@@ -1950,6 +2262,149 @@ export default function StaffDashboard() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* --- MODAL: LOG VOLUNTEER HOURS (Part 5 Additions) --- */}
+      <Modal 
+        isOpen={isLogHoursOpen} 
+        onClose={() => {
+          setIsLogHoursOpen(false);
+          setSelectedVolForHours(null);
+        }} 
+        title={`Log Hours: ${selectedVolForHours?.profile?.full_name || "Volunteer"}`}
+      >
+        <form onSubmit={handleLogHoursSubmit} className="flex flex-col gap-4 text-xs">
+          <p className="text-slate-400">Record a custom conservation hours entry for this volunteer's accredited field service.</p>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input
+              label="Hours Count *"
+              placeholder="E.g. 8..."
+              type="number"
+              value={hoursToAdd}
+              onChange={(e) => setHoursToAdd(e.target.value)}
+              className="py-3"
+              required
+            />
+            <Input
+              label="Activity Date *"
+              type="date"
+              value={hoursDate}
+              onChange={(e) => setHoursDate(e.target.value)}
+              className="py-3"
+              required
+            />
+          </div>
+
+          <Textarea
+            label="Restoration Activity Description *"
+            placeholder="E.g. Mangrove planting and water salinity analysis at Sector Alpha..."
+            value={hoursDesc}
+            onChange={(e) => setHoursDesc(e.target.value)}
+            rows={3}
+            required
+          />
+
+          <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-slate-100">
+            <Button 
+              type="button" 
+              variant="ghost" 
+              onClick={() => {
+                setIsLogHoursOpen(false);
+                setSelectedVolForHours(null);
+              }} 
+              className="py-3 px-4 min-h-[44px]"
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSubmittingLogHours} className="py-3 px-4 min-h-[44px]">
+              {isSubmittingLogHours ? "Saving Log Entry..." : "Confirm & Save Entry"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* --- MODAL: GENERATE CERTIFICATE (Part 5 Additions) --- */}
+      <Modal 
+        isOpen={isCertOpen} 
+        onClose={() => {
+          setIsCertOpen(false);
+          setSelectedVolForCert(null);
+        }} 
+        title="Accredited Conservation Certificate"
+      >
+        <div className="flex flex-col gap-5 text-xs">
+          {selectedVolForCert && selectedVolForCert.hours_logged < 10 ? (
+            <div className="text-center p-6 space-y-3">
+              <div className="mx-auto w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center text-amber-500 text-lg font-bold">!</div>
+              <h3 className="font-bold text-sm text-slate-800">Minimum Hours Requirement Not Met</h3>
+              <p className="text-slate-400">
+                Volunteer needs at least <strong>10 hours</strong> of approved conservation field service to qualify for an official certificate. 
+                Currently has <strong>{selectedVolForCert.hours_logged || 0} hours</strong>.
+              </p>
+              <div className="flex justify-center mt-4">
+                <Button onClick={() => setIsCertOpen(false)} className="py-2.5 px-5">Close Panel</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* STUNNING CERTIFICATE CONTAINER */}
+              <div className="bg-slate-50 border-4 border-double border-[#0096C7] p-8 rounded-2xl relative overflow-hidden shadow-md text-center font-serif text-[#1B4965] bg-opacity-70 backdrop-blur-sm">
+                
+                {/* Visual Seal Accent */}
+                <div className="absolute top-4 right-4 w-12 h-12 rounded-full border-2 border-dashed border-[#0096C7]/30 flex items-center justify-center text-[8px] font-sans text-[#0096C7]/50 uppercase tracking-widest font-semibold select-none rotate-12">
+                  OSI Seal
+                </div>
+
+                <div className="space-y-1.5 mb-6">
+                  <span className="font-sans font-black tracking-widest text-[9px] text-[#0096C7] uppercase">Ocean School India</span>
+                  <h1 className="text-lg font-black text-[#023E8A] uppercase tracking-wide">Certificate of Excellence</h1>
+                  <span className="text-[10px] italic text-slate-500 block font-sans">Accredited Marine Conservation Program</span>
+                </div>
+
+                <p className="text-[11px] font-sans text-slate-500 mb-4">This official credential is proudly awarded to</p>
+                
+                <h2 className="text-xl font-bold font-serif text-[#03045E] underline decoration-[#0096C7] decoration-2 underline-offset-4 mb-4">
+                  {selectedVolForCert?.profile?.full_name || "Volunteer Participant"}
+                </h2>
+
+                <p className="text-xs leading-relaxed font-sans text-slate-600 max-w-md mx-auto mb-6">
+                  for successfully completing <strong>{selectedVolForCert?.hours_logged || 10} hours</strong> of accredited marine estuary restoration, shoreline baseline maintenance, and local marine community mobilization services in India.
+                </p>
+
+                <div className="grid grid-cols-2 gap-4 text-center text-[10px] font-sans border-t border-slate-100 pt-5 mt-6">
+                  <div>
+                    <span className="font-semibold block text-slate-700 underline underline-offset-2">
+                      {user?.full_name || "Regional Coordinator"}
+                    </span>
+                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block mt-1">Authorized Coordinator</span>
+                  </div>
+                  <div>
+                    <span className="font-mono block text-slate-700">
+                      {selectedVolForCert?.volunteer_code || "OSI-VOL-XXXX"}
+                    </span>
+                    <span className="text-slate-400 text-[9px] uppercase tracking-wider block mt-1">Credential Code</span>
+                  </div>
+                </div>
+
+              </div>
+
+              <div className="flex justify-end gap-3 mt-4">
+                <Button variant="ghost" onClick={() => setIsCertOpen(false)} className="py-2.5 px-4">
+                  Close
+                </Button>
+                <Button 
+                  onClick={() => {
+                    window.print();
+                  }}
+                  className="py-2.5 px-4 bg-[#023E8A] hover:bg-[#03045E]"
+                >
+                  Print Certificate
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       </Modal>
 
     </div>

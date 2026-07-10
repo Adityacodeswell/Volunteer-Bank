@@ -7,57 +7,54 @@ import {
   MessageSquare, 
   CheckSquare, 
   UserPlus, 
+  CheckCircle, 
   Check, 
   Info, 
   AlertCircle 
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
-export const NotificationBell: React.FC<{ onNavigate?: (link: string) => void }> = ({ onNavigate }) => {
+export const NotificationBell: React.FC<{ userId?: string; onNavigate?: (link: string) => void }> = ({ userId, onNavigate }) => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const activeUserId = userId || user?.id;
+
+  const fetchNotifications = async () => {
+    if (!activeUserId) return;
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", activeUserId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (!error && data) {
+      setNotifications(data);
+    }
+  };
+
   useEffect(() => {
-    if (!user) return;
-
-    // Fetch initial notifications
-    const fetchNotifications = async () => {
-      const { data, error } = await supabase
-        .from("notifications")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-      if (!error && data) {
-        setNotifications(data);
-      }
-    };
+    if (!activeUserId) return;
 
     fetchNotifications();
 
     // Set up real-time subscription
     const channel = supabase
-      .channel(`user-notifications-${user.id}`)
+      .channel(`user-notifications-${activeUserId}`)
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "notifications",
-          filter: `user_id=eq.${user.id}`,
+          filter: `user_id=eq.${activeUserId}`,
         },
-        (payload) => {
-          if (payload.eventType === "INSERT") {
-            setNotifications((prev) => [payload.new as Notification, ...prev.slice(0, 9)]);
-          } else if (payload.eventType === "UPDATE") {
-            setNotifications((prev) =>
-              prev.map((n) => (n.id === payload.new.id ? (payload.new as Notification) : n))
-            );
-          } else if (payload.eventType === "DELETE") {
-            setNotifications((prev) => prev.filter((n) => n.id !== payload.old.id));
-          }
+        () => {
+          fetchNotifications();
         }
       )
       .subscribe();
@@ -75,16 +72,16 @@ export const NotificationBell: React.FC<{ onNavigate?: (link: string) => void }>
       channel.unsubscribe();
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [user]);
+  }, [activeUserId]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const handleMarkAllAsRead = async () => {
-    if (!user) return;
+    if (!activeUserId) return;
     const { error } = await supabase
       .from("notifications")
       .update({ read: true })
-      .eq("user_id", user.id)
+      .eq("user_id", activeUserId)
       .eq("read", false);
 
     if (!error) {
@@ -106,26 +103,31 @@ export const NotificationBell: React.FC<{ onNavigate?: (link: string) => void }>
       }
     }
     setIsOpen(false);
-    if (notif.link && onNavigate) {
-      onNavigate(notif.link);
+    
+    if (notif.link) {
+      if (onNavigate) {
+        onNavigate(notif.link);
+      } else {
+        navigate(notif.link);
+      }
     }
   };
 
   const getIcon = (type: string) => {
     switch (type) {
       case "join_request":
-        return <UserPlus className="w-4 h-4 text-[#0096C7]" />;
+        return <UserPlus className="w-4 h-4 text-cyan" />;
       case "request_accepted":
-        return <Check className="w-4 h-4 text-emerald-600" />;
+        return <CheckCircle className="w-4 h-4 text-emerald-600" />;
       case "request_declined":
         return <AlertCircle className="w-4 h-4 text-rose-500" />;
       case "new_message":
-        return <MessageSquare className="w-4 h-4 text-[#023E8A]" />;
+        return <MessageSquare className="w-4 h-4 text-navy" />;
       case "task_assigned":
       case "task_updated":
         return <CheckSquare className="w-4 h-4 text-sky-600" />;
       default:
-        return <Info className="w-4 h-4 text-slate-400" />;
+        return <Bell className="w-4 h-4 text-slate-400" />;
     }
   };
 
@@ -144,22 +146,22 @@ export const NotificationBell: React.FC<{ onNavigate?: (link: string) => void }>
   };
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative inline-block text-left" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-white/10 dark:text-slate-200 transition min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
+        className="relative p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-white/10 dark:text-slate-200 transition min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer focus:outline-none"
         id="notification-bell-btn"
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white leading-none">
-            {unreadCount}
+          <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white leading-none">
+            {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 md:w-96 bg-white border border-slate-100 rounded-2xl shadow-2xl z-50 overflow-hidden transform origin-top-right transition-all max-h-[480px] flex flex-col">
+        <div className="absolute right-0 mt-2 w-80 md:w-96 bg-white border border-slate-100 rounded-2xl shadow-2xl z-50 overflow-hidden transform origin-top-right transition-all max-h-[380px] flex flex-col">
           <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center shrink-0">
             <span className="font-serif font-bold text-sm text-[#1B4965]">Notifications</span>
             {unreadCount > 0 && (
@@ -174,8 +176,9 @@ export const NotificationBell: React.FC<{ onNavigate?: (link: string) => void }>
 
           <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
             {notifications.length === 0 ? (
-              <div className="p-8 text-center text-slate-400 text-xs italic">
-                No notifications yet
+              <div className="p-8 text-center flex flex-col items-center justify-center text-slate-400 text-xs">
+                <Check className="w-8 h-8 text-emerald-500 mb-2 border border-emerald-100 bg-emerald-50 rounded-full p-1" />
+                <span className="font-medium text-slate-600">You're all caught up.</span>
               </div>
             ) : (
               notifications.map((notif) => (
@@ -183,14 +186,14 @@ export const NotificationBell: React.FC<{ onNavigate?: (link: string) => void }>
                   key={notif.id}
                   onClick={() => handleNotificationClick(notif)}
                   className={`p-4 flex gap-3 cursor-pointer transition hover:bg-slate-50/50 ${
-                    !notif.read ? "bg-[#0096C7]/5 font-medium" : ""
+                    !notif.read ? "bg-blue-50/60" : ""
                   }`}
                 >
                   <div className="p-2 bg-white rounded-xl shadow-xs shrink-0 border border-slate-100 h-9 w-9 flex items-center justify-center">
                     {getIcon(notif.type)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-slate-800 truncate leading-snug">{notif.title}</p>
+                    <p className={`text-xs text-slate-800 truncate leading-snug ${!notif.read ? "font-semibold" : "font-medium"}`}>{notif.title}</p>
                     <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed break-words">{notif.body}</p>
                     <span className="text-[9px] text-slate-400 font-mono mt-1 block">
                       {getRelativeTime(notif.created_at)}

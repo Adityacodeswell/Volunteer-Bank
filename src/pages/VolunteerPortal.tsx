@@ -56,6 +56,8 @@ export default function VolunteerPortal() {
   const [myUnitTeam, setMyUnitTeam] = useState<any[]>([]);
   const [coordinatorsList, setCoordinatorsList] = useState<Profile[]>([]);
   const [myJoinRequests, setMyJoinRequests] = useState<JoinRequest[]>([]);
+  const [hoursLogs, setHoursLogs] = useState<any[]>([]);
+  const [impactTab, setImpactTab] = useState<"stats" | "hours">("stats");
   const [stats, setStats] = useState<any>({
     hours: 0,
     visits: 0,
@@ -227,6 +229,20 @@ export default function VolunteerPortal() {
       if (sitesErr) throw new Error(sitesErr.message);
       setSites(sitesData || []);
 
+      // 8.5 Fetch hours logs history
+      try {
+        const { data: logs, error: logsErr } = await supabase
+          .from("hours_log")
+          .select("*, logged_by:profiles!hours_log_logged_by_staff_id_fkey(full_name)")
+          .eq("volunteer_id", user.id)
+          .order("activity_date", { ascending: false });
+        if (!logsErr && logs) {
+          setHoursLogs(logs);
+        }
+      } catch (logErr) {
+        console.error("Hours logs loading failed", logErr);
+      }
+
       // 9. Stats
       const { count: globalVolunteersCount, error: countErr } = await supabase
         .from("volunteers")
@@ -234,23 +250,45 @@ export default function VolunteerPortal() {
 
       if (countErr) throw new Error(countErr.message);
 
-      const { data: allVols, error: volsErr } = await supabase
-        .from("volunteers")
-        .select("hours_logged");
-
-      if (volsErr) throw new Error(volsErr.message);
-
-      const totalHours = allVols?.reduce((sum, v) => sum + (v.hours_logged || 0), 0) || 0;
       const visitsCount = signupsData?.filter(s => s.attended).length || 0;
+
+      // Real Impact Calculations via activity_log (Part 0D)
+      let plasticRemovedKg = 0;
+      let saplingsCounted = 0;
+      let raftHouseholdsReached = 0;
+
+      try {
+        const { data: logsData } = await supabase
+          .from("activity_log")
+          .select("*");
+
+        if (logsData && logsData.length > 0) {
+          logsData.forEach(log => {
+            const desc = (log.description || "").toLowerCase();
+            const numMatch = desc.match(/(\d+(?:\.\d+)?)/);
+            const num = numMatch ? parseFloat(numMatch[1]) : 0;
+
+            if (log.action_type === "PLASTIC_REMOVED" || desc.includes("plastic") || desc.includes("waste") || desc.includes("bag") || desc.includes("sack")) {
+              plasticRemovedKg += num || 10;
+            } else if (log.action_type === "SAPLINGS_PLANTED" || log.action_type === "SAPLINGS_COUNTED" || desc.includes("sapling") || desc.includes("plant") || desc.includes("tag")) {
+              saplingsCounted += num || 5;
+            } else if (log.action_type === "RAFT_HOUSEHOLD" || desc.includes("household") || desc.includes("raft") || desc.includes("flyer")) {
+              raftHouseholdsReached += num || 2;
+            }
+          });
+        }
+      } catch (logErr) {
+        console.error("Activity logs query failed", logErr);
+      }
 
       setStats({
         hours: volData?.hours_logged || 0,
         visits: visitsCount,
         signups: signupsData?.length || 0,
         globalVolunteers: globalVolunteersCount || 0,
-        plasticRemovedKg: totalHours * 12,
-        saplingsCounted: totalHours * 5,
-        raftHouseholdsReached: Math.floor(totalHours * 1.5)
+        plasticRemovedKg,
+        saplingsCounted,
+        raftHouseholdsReached
       });
 
     } catch (err: any) {
@@ -668,9 +706,9 @@ export default function VolunteerPortal() {
               />
 
               {[
-                { val: 0, label: "0m Landing", sub: "Portal Overview" },
-                { val: 5, label: "5m Intake", sub: "Site & Emergency" },
-                { val: 15, label: "15m Profile", sub: "Badges & Messaging" },
+                { val: 0, label: "0m My Team", sub: "Assigned Coordinator" },
+                { val: 5, label: "5m Profile", sub: "Site & Emergency" },
+                { val: 15, label: "15m Messages", sub: "Coordinator Chat" },
                 { val: 25, label: "25m Campaigns", sub: "Opportunities & Tasks" },
                 { val: 40, label: "40m Impact", sub: "Conservation Stats" }
               ].map((lvl) => (
@@ -699,9 +737,9 @@ export default function VolunteerPortal() {
         {/* MOBILE BOTTOM DEPTH TAB BAR */}
         <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-[#023E8A] border-t border-white/10 z-50 px-4 py-2 flex justify-between items-center overflow-x-auto gap-2">
           {[
-            { val: 0, label: "0m Landing", icon: Waves },
-            { val: 5, label: "5m Intake", icon: User },
-            { val: 15, label: "15m Profile", icon: MessageSquare },
+            { val: 0, label: "0m My Team", icon: Users },
+            { val: 5, label: "5m Profile", icon: User },
+            { val: 15, label: "15m Messages", icon: MessageSquare },
             { val: 25, label: "25m Campaigns", icon: Calendar },
             { val: 40, label: "40m Impact", icon: BarChart3 }
           ].map((lvl) => {
@@ -741,80 +779,172 @@ export default function VolunteerPortal() {
                 className="flex flex-col gap-6"
               >
                 
-                {/* --- 0m LANDING PAGE VIEW --- */}
+                {/* --- 0m MY TEAM VIEW --- */}
                 {depth === 0 && (
                   <div className="flex flex-col gap-6">
                     {/* Greeting banner */}
                     <div className="bg-[#023E8A]/90 backdrop-blur-md border border-white/20 text-white rounded-xl p-8 shadow-lg relative overflow-hidden">
                       <div className="max-w-md relative z-10">
                         <span className="px-2.5 py-0.5 rounded-full bg-cyan/20 text-aqua border border-aqua/30 text-[10px] font-bold uppercase tracking-wider">
-                          Dive Base Clearance: Active
+                          {volDetail?.coordinator_id ? "Active Team Member" : "Awaiting Team Assignment"}
                         </span>
                         <h1 className="font-serif font-black text-3xl mt-4 leading-tight">
                           Welcome back, <br />
                           {user?.full_name}
                         </h1>
-                        <p className="text-slate-200 text-xs mt-3 leading-relaxed">
-                          You are assigned to Coordinator <span className="font-bold text-white">{coordinatorName}</span>. Your baseline site preference is listed as <span className="font-bold text-white">{volDetail?.site_name || "Unset"}</span>.
-                        </p>
-                        <button
-                          onClick={() => setDepth(25)}
-                          className="mt-6 px-4 py-3 bg-cyan text-white rounded-xl text-xs font-semibold hover:bg-sky-500 transition inline-flex items-center gap-1.5 cursor-pointer min-h-[44px]"
-                        >
-                          Explore active opportunities
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
+                        {volDetail?.coordinator_id ? (
+                          <p className="text-slate-200 text-xs mt-3 leading-relaxed">
+                            You are assigned to Coordinator <span className="font-bold text-white">{coordinatorName}</span>. Your baseline site preference is listed as <span className="font-bold text-white">{volDetail?.site_name || "Unset"}</span>.
+                          </p>
+                        ) : (
+                          <p className="text-slate-200 text-xs mt-3 leading-relaxed">
+                            You haven't joined a regional team yet. Browse the regional coordinators below to request an assignment.
+                          </p>
+                        )}
+                        {volDetail?.coordinator_id && (
+                          <button
+                            onClick={() => setDepth(25)}
+                            className="mt-6 px-4 py-3 bg-cyan text-white rounded-xl text-xs font-semibold hover:bg-sky-500 transition inline-flex items-center gap-1.5 cursor-pointer min-h-[44px]"
+                          >
+                            Explore active opportunities
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Coordinator Orientation Note */}
-                      <Card title="Coordinator Orientation Note" subtitle="Direct briefing from your assigned lead" glass="light">
-                        <div className="flex items-start gap-4">
-                          <Avatar name={coordinatorName} size="md" />
-                          <div>
-                            <h4 className="font-bold text-sm text-[#023E8A]">{coordinatorName}</h4>
-                            <p className="text-xs text-slate-500">Regional Outreach Coordinator</p>
-                            <p className="text-xs text-[#1B4965] italic mt-3 leading-relaxed border-l-2 border-[#0096C7] pl-3">
-                              "Hello! Thank you for stepping up for Ocean School India. Our active targets this week focus on coastal conservation, sapling tag surveys, and local ecosystem monitoring. Check out the campaigns below!"
-                            </p>
-                          </div>
-                        </div>
-                      </Card>
-
-                      {/* Pending tasks quick view */}
-                      <Card title="Outstanding Action Items" subtitle="Direct items to review this week" glass="light">
-                        {myTasks.filter(t => t.status !== "done").length === 0 ? (
-                           <div className="p-6 text-center text-[#1B4965]">
-                            <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-2" />
-                            <h4 className="font-semibold text-sm">No pending tasks!</h4>
-                            <p className="text-xs mt-1 text-slate-500">Your schedule is clear. Check the Opportunity Board at 25m Descent to sign up for new campaigns.</p>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col gap-3">
-                            {myTasks.filter(t => t.status !== "done").slice(0, 3).map((task) => (
-                              <div key={task.id} className="p-3.5 rounded-xl bg-white/40 border border-white/50 flex justify-between items-center gap-4 text-[#1B4965]">
+                    {volDetail?.coordinator_id ? (
+                      // Case 1: Volunteer HAS a coordinator
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Coordinator details card */}
+                        <Card title="My Coordinator" subtitle="Direct lead for your conservation unit" glass="light">
+                          <div className="flex items-start gap-4">
+                            <Avatar name={coordinatorName} size="md" />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="font-bold text-sm text-[#023E8A]">{coordinatorName}</h4>
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-100/30 text-emerald-800 border border-emerald-200 text-[9px] font-bold uppercase tracking-wider">
+                                  Active Lead
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-500">Regional Outreach Coordinator</p>
+                              
+                              <div className="mt-3 space-y-1 text-xs text-[#1B4965]">
                                 <div>
-                                  <span className="text-xs font-semibold text-[#023E8A] block">{task.title}</span>
-                                  <span className="text-[10px] text-slate-500 mt-0.5 block font-mono">Due: {task.due_date}</span>
+                                  <span className="font-semibold">Email: </span>
+                                  <span className="font-mono">{coordinatorsList.find(c => c.id === volDetail?.coordinator_id)?.email || "coordinator@oceanschool.org"}</span>
                                 </div>
-                                <button
-                                  onClick={() => handleToggleTask(task.id, task.status)}
-                                  className="px-4 py-2 bg-[#023E8A] hover:bg-[#1B4965] text-white text-[10px] font-bold cursor-pointer rounded-xl min-h-[44px]"
-                                >
-                                  Mark Done
+                                <div>
+                                  <span className="font-semibold">Phone: </span>
+                                  <span className="font-mono">{coordinatorsList.find(c => c.id === volDetail?.coordinator_id)?.phone || "+91 99999 99999"}</span>
+                                </div>
+                                <div>
+                                  <span className="font-semibold">Assigned Region: </span>
+                                  <span>{volDetail?.site_name || "Navi Mumbai / Lakshadweep"}</span>
+                                </div>
+                              </div>
+
+                              <p className="text-xs text-[#1B4965] italic mt-4 leading-relaxed border-l-2 border-[#0096C7] pl-3 bg-[#0096C7]/5 py-1.5 rounded-r">
+                                "Hello! Thank you for stepping up for Ocean School India. Our active targets this week focus on coastal conservation, sapling tag surveys, and local ecosystem monitoring. Check out the campaigns below!"
+                              </p>
+                            </div>
+                          </div>
+                        </Card>
+
+                        {/* Outstanding tasks checklist */}
+                        <Card title="Outstanding Action Items" subtitle="Direct items to review this week" glass="light">
+                          {myTasks.filter(t => t.status !== "done").length === 0 ? (
+                            <div className="p-6 text-center text-[#1B4965]">
+                              <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-2" />
+                              <h4 className="font-semibold text-sm">No pending tasks!</h4>
+                              <p className="text-xs mt-1 text-slate-500">Your schedule is clear. Check the Opportunity Board at 25m Descent to sign up for new campaigns.</p>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-3">
+                              {myTasks.filter(t => t.status !== "done").slice(0, 3).map((task) => (
+                                <div key={task.id} className="p-3.5 rounded-xl bg-white/40 border border-white/50 flex justify-between items-center gap-4 text-[#1B4965]">
+                                  <div>
+                                    <span className="text-xs font-semibold text-[#023E8A] block">{task.title}</span>
+                                    <span className="text-[10px] text-slate-500 mt-0.5 block font-mono">Due: {task.due_date}</span>
+                                  </div>
+                                  <button
+                                    onClick={() => handleToggleTask(task.id, task.status)}
+                                    className="px-4 py-2 bg-[#023E8A] hover:bg-[#1B4965] text-white text-[10px] font-bold cursor-pointer rounded-xl min-h-[44px]"
+                                  >
+                                    Mark Done
+                                  </button>
+                                </div>
+                              ))}
+                              {myTasks.filter(t => t.status !== "done").length > 3 && (
+                                <button onClick={() => setDepth(25)} className="text-xs font-bold text-[#0096C7] hover:underline text-center mt-2 block min-h-[44px]">
+                                  View all +{myTasks.filter(t => t.status !== "done").length - 3} tasks
                                 </button>
+                              )}
+                            </div>
+                          )}
+                        </Card>
+                      </div>
+                    ) : (
+                      // Case 2: Volunteer does NOT have a coordinator yet
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Pending requests */}
+                        <Card title="Your Sent Team Requests" subtitle="Track invitations and join requests" glass="light">
+                          <div className="flex flex-col gap-3">
+                            {myJoinRequests.filter(r => r.from_id === user!.id && r.status === "pending").map(req => (
+                              <div key={req.id} className="p-3.5 bg-white/50 rounded-xl border border-white/60 text-xs text-[#1B4965]">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="font-bold">{req.to_profile?.full_name || "Coordinator"}</span>
+                                  <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-[9px] font-mono uppercase tracking-wider font-bold">
+                                    Pending
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-slate-500 italic mt-1 font-mono">"{req.message}"</p>
                               </div>
                             ))}
-                            {myTasks.filter(t => t.status !== "done").length > 3 && (
-                              <button onClick={() => setDepth(25)} className="text-xs font-bold text-[#0096C7] hover:underline text-center mt-2 block min-h-[44px]">
-                                View all +{myTasks.filter(t => t.status !== "done").length - 3} tasks
-                              </button>
+                            {myJoinRequests.filter(r => r.from_id === user!.id && r.status === "pending").length === 0 && (
+                              <div className="p-6 text-center text-[#1B4965] italic text-xs">
+                                No pending join requests sent. Choose a coordinator on the right to apply.
+                              </div>
                             )}
                           </div>
-                        )}
-                      </Card>
-                    </div>
+                        </Card>
+
+                        {/* Available Coordinators to Join */}
+                        <Card title="Available Coordinators" subtitle="Request to join a regional field unit" glass="light">
+                          <div className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1">
+                            {coordinatorsList.map(coord => {
+                              const requestStatus = myJoinRequests.find(r => r.to_id === coord.id && r.from_id === user!.id)?.status;
+                              return (
+                                <div key={coord.id} className="p-4 bg-white/40 border border-white/50 rounded-xl flex justify-between items-center text-xs text-[#1B4965]">
+                                  <div className="flex items-center gap-3">
+                                    <Avatar name={coord.full_name} size="sm" />
+                                    <div>
+                                      <span className="font-bold text-sm text-[#023E8A] block">{coord.full_name}</span>
+                                      <span className="text-[10px] text-slate-500 block">Regional Lead</span>
+                                    </div>
+                                  </div>
+                                  {requestStatus ? (
+                                    <span className="text-[10px] font-mono uppercase font-black text-[#0096C7] tracking-wider bg-[#0096C7]/10 px-2 py-1 rounded">
+                                      {requestStatus}
+                                    </span>
+                                  ) : (
+                                    <Button
+                                      onClick={() => handleRequestJoinUnit(coord.id)}
+                                      className="text-[10px] py-1 px-3 bg-[#0096C7] hover:bg-[#023E8A]"
+                                    >
+                                      Join Team
+                                    </Button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {coordinatorsList.length === 0 && (
+                              <p className="text-xs text-slate-400 italic text-center py-4">No active coordinators listed.</p>
+                            )}
+                          </div>
+                        </Card>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1225,54 +1355,118 @@ export default function VolunteerPortal() {
                 {/* --- 40m IMPACT DASHBOARD VIEW --- */}
                 {depth === 40 && (
                   <div className="flex flex-col gap-6">
-                    {/* Personal stats strip */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                      <Card title="Hours Credited" subtitle="Approved by coordinator" className="text-center" glass="dark">
-                        <span className="font-serif font-black text-4xl text-cyan">{stats.hours}h</span>
-                        <p className="text-[10px] text-slate-300 uppercase tracking-widest mt-2 font-semibold">Total logged hours</p>
-                      </Card>
-                      <Card title="Visits Recorded" subtitle="Dives & baseline sampling drives" className="text-center" glass="dark">
-                        <span className="font-serif font-black text-4xl text-cyan">{stats.visits}</span>
-                        <p className="text-[10px] text-slate-300 uppercase tracking-widest mt-2 font-semibold">Active site visits</p>
-                      </Card>
-                      <Card title="Sign-ups Logged" subtitle="Current commitment ledger" className="text-center" glass="dark">
-                        <span className="font-serif font-black text-4xl text-cyan">{stats.signups}</span>
-                        <p className="text-[10px] text-slate-300 uppercase tracking-widest mt-2 font-semibold">Campaign registrations</p>
-                      </Card>
+                    {/* Tab Selection */}
+                    <div className="flex bg-[#0096C7]/20 p-1 rounded-xl self-start">
+                      <button
+                        onClick={() => setImpactTab("stats")}
+                        className={`px-4 py-2 rounded-lg text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+                          impactTab === "stats"
+                            ? "bg-cyan text-white shadow-md"
+                            : "text-slate-300 hover:text-white"
+                        }`}
+                      >
+                        Aggregate Stats
+                      </button>
+                      <button
+                        onClick={() => setImpactTab("hours")}
+                        className={`px-4 py-2 rounded-lg text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+                          impactTab === "hours"
+                            ? "bg-cyan text-white shadow-md"
+                            : "text-slate-300 hover:text-white"
+                        }`}
+                      >
+                        Hours Log Book
+                      </button>
                     </div>
 
-                    {/* Global impact indicators */}
-                    <Card title="Ocean School India — Aggregate Impact Indicators" subtitle="Aggregated scientific outcomes logged by active field units" glass="dark">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 text-center py-6">
-                        <div className="p-4 rounded-xl bg-[#0096C7]/20 border border-white/10 backdrop-blur-xs">
-                          <Waves className="w-8 h-8 text-cyan mx-auto mb-2" />
-                          <span className="font-serif font-black text-3xl text-white block">{stats.globalVolunteers}</span>
-                          <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider block mt-1">Volunteer Pool</span>
+                    {impactTab === "stats" ? (
+                      <>
+                        {/* Personal stats strip */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                          <Card title="Hours Credited" subtitle="Approved by coordinator" className="text-center" glass="dark">
+                            <span className="font-serif font-black text-4xl text-cyan">{stats.hours}h</span>
+                            <p className="text-[10px] text-slate-300 uppercase tracking-widest mt-2 font-semibold">Total logged hours</p>
+                          </Card>
+                          <Card title="Visits Recorded" subtitle="Dives & baseline sampling drives" className="text-center" glass="dark">
+                            <span className="font-serif font-black text-4xl text-cyan">{stats.visits}</span>
+                            <p className="text-[10px] text-slate-300 uppercase tracking-widest mt-2 font-semibold">Active site visits</p>
+                          </Card>
+                          <Card title="Sign-ups Logged" subtitle="Current commitment ledger" className="text-center" glass="dark">
+                            <span className="font-serif font-black text-4xl text-cyan">{stats.signups}</span>
+                            <p className="text-[10px] text-slate-300 uppercase tracking-widest mt-2 font-semibold">Campaign registrations</p>
+                          </Card>
                         </div>
 
-                        <div className="p-4 rounded-xl bg-[#0096C7]/20 border border-white/10 backdrop-blur-xs">
-                          <Trash2 className="w-8 h-8 text-coral mx-auto mb-2" />
-                          <span className="font-serif font-black text-3xl text-white block">{stats.plasticRemovedKg} kg</span>
-                          <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider block mt-1">Plastic Extracted</span>
-                        </div>
+                        {/* Global impact indicators */}
+                        <Card title="Ocean School India — Aggregate Impact Indicators" subtitle="Aggregated scientific outcomes logged by active field units" glass="dark">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 text-center py-6">
+                            <div className="p-4 rounded-xl bg-[#0096C7]/20 border border-white/10 backdrop-blur-xs">
+                              <Waves className="w-8 h-8 text-cyan mx-auto mb-2" />
+                              <span className="font-serif font-black text-3xl text-white block">{stats.globalVolunteers}</span>
+                              <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider block mt-1">Volunteer Pool</span>
+                            </div>
 
-                        <div className="p-4 rounded-xl bg-[#0096C7]/20 border border-white/10 backdrop-blur-xs">
-                          <Award className="w-8 h-8 text-amber mx-auto mb-2" />
-                          <span className="font-serif font-black text-3xl text-white block">{stats.saplingsCounted}</span>
-                          <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider block mt-1">Saplings Tagged</span>
-                        </div>
+                            <div className="p-4 rounded-xl bg-[#0096C7]/20 border border-white/10 backdrop-blur-xs">
+                              <Trash2 className="w-8 h-8 text-coral mx-auto mb-2" />
+                              <span className="font-serif font-black text-3xl text-white block">{stats.plasticRemovedKg} kg</span>
+                              <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider block mt-1">Plastic Extracted</span>
+                            </div>
 
-                        <div className="p-4 rounded-xl bg-[#0096C7]/20 border border-white/10 backdrop-blur-xs">
-                          <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
-                          <span className="font-serif font-black text-3xl text-white block">{stats.raftHouseholdsReached}</span>
-                          <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider block mt-1">RAFT Contacts</span>
-                        </div>
-                      </div>
+                            <div className="p-4 rounded-xl bg-[#0096C7]/20 border border-white/10 backdrop-blur-xs">
+                              <Award className="w-8 h-8 text-amber mx-auto mb-2" />
+                              <span className="font-serif font-black text-3xl text-white block">{stats.saplingsCounted}</span>
+                              <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider block mt-1">Saplings Tagged</span>
+                            </div>
 
-                      <div className="bg-[#62B6CB]/20 p-4 rounded-xl border border-white/10 text-xs text-white leading-relaxed mt-4">
-                        <span className="font-bold text-cyan block mb-1">Impact Transparency Policy:</span> In alignment with social work guidelines, all plastic extracted, saplings monitored, and hours credited are verified weekly by assigned coordinators prior to final regional publishing.
-                      </div>
-                    </Card>
+                            <div className="p-4 rounded-xl bg-[#0096C7]/20 border border-white/10 backdrop-blur-xs">
+                              <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+                              <span className="font-serif font-black text-3xl text-white block">{stats.raftHouseholdsReached}</span>
+                              <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider block mt-1">RAFT Contacts</span>
+                            </div>
+                          </div>
+
+                          <div className="bg-[#62B6CB]/20 p-4 rounded-xl border border-white/10 text-xs text-white leading-relaxed mt-4">
+                            <span className="font-bold text-cyan block mb-1">Impact Transparency Policy:</span> In alignment with social work guidelines, all plastic extracted, saplings monitored, and hours credited are verified weekly by assigned coordinators prior to final regional publishing.
+                          </div>
+                        </Card>
+                      </>
+                    ) : (
+                      /* Hours Log Book Tab (Part 6B) */
+                      <Card title="Hours Log Book" subtitle="Chronological ledger of hours verified and logged by your coordinator" glass="dark">
+                        {hoursLogs.length === 0 ? (
+                          <div className="p-8 text-center bg-white/5 border border-white/10 rounded-xl text-white">
+                            <Clock className="w-12 h-12 text-[#62B6CB] mx-auto mb-3 animate-pulse" />
+                            <h4 className="font-bold text-sm">No verified hours logged yet</h4>
+                            <p className="text-xs text-slate-300 mt-1">Your hours will show up here as soon as your coordinator logs them into the central registry.</p>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-xs border-collapse">
+                              <thead>
+                                <tr className="border-b border-white/10 text-[#62B6CB] uppercase tracking-wider text-[10px]">
+                                  <th className="py-3 px-4 font-bold">Date</th>
+                                  <th className="py-3 px-4 font-bold">Hours</th>
+                                  <th className="py-3 px-4 font-bold">Activity Description</th>
+                                  <th className="py-3 px-4 font-bold">Logged By</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/5 text-white font-sans">
+                                {hoursLogs.map((log) => (
+                                  <tr key={log.id} className="hover:bg-white/5 transition">
+                                    <td className="py-3.5 px-4 font-mono">{new Date(log.activity_date).toLocaleDateString()}</td>
+                                    <td className="py-3.5 px-4 font-bold text-cyan">{log.hours_count} hrs</td>
+                                    <td className="py-3.5 px-4 max-w-xs truncate">{log.description || "N/A"}</td>
+                                    <td className="py-3.5 px-4 italic text-slate-300 font-semibold">
+                                      {log.logged_by?.full_name || "Coordinator"}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </Card>
+                    )}
                   </div>
                 )}
 

@@ -67,13 +67,18 @@ export default function LandingPage() {
               <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest leading-none block mt-0.5">Volunteer Bank</span>
             </div>
           </div>
-          <button
-            onClick={handleCTAClick}
-            className="px-5 py-2 rounded-lg bg-navy hover:bg-deep text-white font-medium text-sm transition shadow-sm cursor-pointer inline-flex items-center gap-1.5"
-          >
-            {user ? "Enter Dashboard" : "Volunteer Login"}
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-3">
+            <Link to="/join" className="px-4 py-2 text-sm font-semibold text-cyan hover:text-navy transition">
+              Apply to Volunteer
+            </Link>
+            <button
+              onClick={handleCTAClick}
+              className="px-5 py-2 rounded-lg bg-navy hover:bg-deep text-white font-medium text-sm transition shadow-sm cursor-pointer inline-flex items-center gap-1.5"
+            >
+              {user ? "Enter Dashboard" : "Volunteer Login"}
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -96,18 +101,18 @@ export default function LandingPage() {
             Ocean School India stands as a single source of truth for marine conservation efforts. Join our scientific volunteer bank across the mangroves of Navi Mumbai and deep-sea dive reefs of Lakshadweep.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row justify-center gap-4">
+            <Link
+              to="/join"
+              className="px-8 py-3.5 rounded-lg bg-cyan hover:bg-sky-500 text-white font-semibold text-sm transition shadow-md hover:shadow-lg cursor-pointer text-center inline-block"
+            >
+              Apply to Volunteer
+            </Link>
             <button
               onClick={handleCTAClick}
               className="px-8 py-3.5 rounded-lg bg-navy hover:bg-deep text-white font-semibold text-sm transition shadow-md hover:shadow-lg cursor-pointer"
             >
-              Get Started with Volunteer Bank
+              Access Member Portal
             </button>
-            <a
-              href="#sites"
-              className="px-8 py-3.5 rounded-lg bg-white hover:bg-slate-50 text-deep border border-slate-200 font-semibold text-sm transition"
-            >
-              Explore Our Sites
-            </a>
           </div>
         </div>
       </section>

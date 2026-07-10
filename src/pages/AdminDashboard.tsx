@@ -19,7 +19,8 @@ import {
   StaffWithProfile,
   JoinRequest,
   Task,
-  Message
+  Message,
+  VolunteerApplication
 } from "../types";
 import { supabase, SUPABASE_URL, SUPABASE_PUBLIC_KEY } from "../supabaseClient";
 import { createClient } from "@supabase/supabase-js";
@@ -55,7 +56,7 @@ export default function AdminDashboard() {
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<
-    "overview" | "staff" | "volunteers" | "tasks" | "opportunities" | "messages" | "requests" | "settings"
+    "overview" | "staff" | "volunteers" | "tasks" | "opportunities" | "messages" | "requests" | "settings" | "applications"
   >("overview");
   const [loading, setLoading] = useState(true);
   const [errorState, setErrorState] = useState<string | null>(null);
@@ -71,6 +72,7 @@ export default function AdminDashboard() {
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [applications, setApplications] = useState<VolunteerApplication[]>([]);
   const [stats, setStats] = useState<any>({
     totalVolunteers: 0,
     totalStaff: 0,
@@ -278,6 +280,15 @@ export default function AdminDashboard() {
 
       setTasks(tasksData || []);
 
+      // 8. Fetch volunteer applications (Part 7 Additions)
+      const { data: appsData, error: appsErr } = await supabase
+        .from("volunteer_applications")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (appsErr) throw new Error(appsErr.message);
+      setApplications(appsData || []);
+
       const mappedStaff: StaffWithProfile[] = (staffData || [])
         .filter(s => s && s.id)
         .map(s => {
@@ -427,6 +438,111 @@ export default function AdminDashboard() {
       showToast(err.message || "Failed to register user account", "error");
     } finally {
       setIsSubmittingStaff(false);
+    }
+  };
+
+  // Approve a Volunteer Application (Part 7 Additions)
+  const handleApproveApplication = async (app: VolunteerApplication) => {
+    try {
+      const generateTempPassword = () => {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+        return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('') + '!';
+      };
+      const tempPassword = generateTempPassword();
+
+      // Sign up on Supabase Auth
+      const { data: authData, error: authErr } = await supabase.auth.signUp({
+        email: app.email,
+        password: tempPassword,
+      });
+
+      if (authErr) throw new Error(authErr.message);
+      if (!authData.user) throw new Error("Could not create authentication profile");
+
+      // Create profile row
+      const { error: profileErr } = await supabase.from("profiles").insert({
+        id: authData.user.id,
+        role: "volunteer",
+        full_name: app.full_name,
+        email: app.email,
+        phone: app.phone || "",
+        must_reset_password: true
+      });
+
+      if (profileErr) throw new Error(profileErr.message);
+
+      // Match site preference ID from site list
+      const matchedSite = sites.find(s => s.name === app.site_preference) || sites[0];
+
+      // Assign to first available staff or admin
+      const targetCoordinator = staffList.find(s => s.profile?.role === "staff")?.profile?.id || user!.id;
+
+      // Create volunteer row
+      const volCode = `OSI-VOL-${String(Math.floor(1000 + Math.random() * 9000))}`;
+      const { error: volErr } = await supabase.from("volunteers").insert({
+        profile_id: authData.user.id,
+        coordinator_id: targetCoordinator,
+        site_preference_id: matchedSite?.id || null,
+        interests: app.interests || [],
+        availability: app.availability || "Weekend warrior",
+        how_heard: app.how_heard || "Other",
+        status: "active",
+        hours_logged: 0,
+        volunteer_code: volCode,
+        emergency_contact: "N/A"
+      });
+
+      if (volErr) throw new Error(volErr.message);
+
+      // Update volunteer applications row
+      const { error: updateAppErr } = await supabase
+        .from("volunteer_applications")
+        .update({
+          status: "approved",
+          reviewed_by: user!.id,
+          reviewed_at: new Date().toISOString()
+        })
+        .eq("id", app.id);
+
+      if (updateAppErr) throw new Error(updateAppErr.message);
+
+      // Add to activity log
+      await supabase.from("activity_log").insert({
+        profile_id: user!.id,
+        action_type: "APPLICATION_APPROVED",
+        description: `Approved volunteer application for ${app.full_name} (${volCode})`
+      });
+
+      setCreatedStaffCreds({
+        role: "volunteer",
+        email: app.email,
+        password: tempPassword
+      });
+      showToast(`Application for ${app.full_name} approved! Security profile created.`, "success");
+      loadAllData();
+    } catch (err: any) {
+      showToast(err.message || "Application approval failed", "error");
+    }
+  };
+
+  // Decline a Volunteer Application (Part 7 Additions)
+  const handleDeclineApplication = async (appId: string) => {
+    try {
+      const { error } = await supabase
+        .from("volunteer_applications")
+        .update({
+          status: "declined",
+          reviewed_by: user!.id,
+          reviewed_at: new Date().toISOString()
+        })
+        .eq("id", appId);
+
+      if (error) throw new Error(error.message);
+
+      showToast("Application declined.", "info");
+      loadAllData();
+    } catch (err: any) {
+      showToast(err.message || "Failed to decline application", "error");
     }
   };
 
@@ -910,6 +1026,7 @@ export default function AdminDashboard() {
                       { tab: "opportunities", label: "Campaigns & Sites", icon: <Map className="w-4 h-4" /> },
                       { tab: "messages", label: "Message Broadcast", icon: <MessageSquare className="w-4 h-4" /> },
                       { tab: "requests", label: "Join Requests", icon: <Bell className="w-4 h-4" />, badge: pendingRequestsCount },
+                      { tab: "applications", label: "Volunteer Applications", icon: <Award className="w-4 h-4" /> },
                       { tab: "settings", label: "System Config", icon: <Settings className="w-4 h-4" /> }
                     ].map(t => (
                       <button
@@ -959,6 +1076,7 @@ export default function AdminDashboard() {
               { tab: "opportunities", label: "Campaigns & Sites", icon: <Map className="w-4 h-4" /> },
               { tab: "messages", label: "Message Broadcast", icon: <MessageSquare className="w-4 h-4" /> },
               { tab: "requests", label: "Join Requests", icon: <Bell className="w-4 h-4" />, badge: pendingRequestsCount },
+              { tab: "applications", label: "Volunteer Applications", icon: <Award className="w-4 h-4" /> },
               { tab: "settings", label: "System Config", icon: <Settings className="w-4 h-4" /> }
             ].map(t => (
               <button
@@ -1538,6 +1656,97 @@ export default function AdminDashboard() {
                           <div className="p-12 text-center text-slate-400 italic">
                             No active upgrade or join request records currently exist in database.
                           </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* --- TAB: APPLICATIONS (Part 7 Additions) --- */}
+                {activeTab === "applications" && (
+                  <div className="flex flex-col gap-6">
+                    <div>
+                      <h2 className="font-serif font-bold text-xl text-[#023E8A]">Prospective Volunteer Applications</h2>
+                      <p className="text-xs text-slate-400 mt-0.5 font-sans">Audit and approve prospective volunteers signing up for coastal estuary campaigns.</p>
+                    </div>
+
+                    <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+                      <div className="p-4 bg-slate-50 border-b border-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Prospective Volunteer Applications Pool
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {applications.map(app => (
+                          <div key={app.id} className="p-5 flex flex-col gap-4">
+                            <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+                              <div className="flex gap-3">
+                                <Avatar name={app.full_name} size="md" />
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <h3 className="font-bold text-sm text-[#1B4965]">{app.full_name}</h3>
+                                    <span className="text-[10px] text-slate-400 font-mono">({app.email})</span>
+                                    <Badge status={app.status as any} />
+                                  </div>
+                                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500 mt-1 font-mono">
+                                    {app.phone && <div>PHONE: <span className="font-semibold text-slate-700">{app.phone}</span></div>}
+                                    <div>PREF SITE: <span className="font-semibold text-slate-700">{app.site_preference || "Any"}</span></div>
+                                    <div>AVAILABILITY: <span className="font-semibold text-slate-700">{app.availability || "N/A"}</span></div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="text-right text-[10px] text-slate-400 font-mono shrink-0">
+                                Received: {new Date(app.created_at).toLocaleDateString()}
+                              </div>
+                            </div>
+
+                            {/* Application Details */}
+                            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 text-xs text-slate-600 space-y-2">
+                              {app.message && (
+                                <p className="leading-relaxed">
+                                  <span className="font-semibold text-slate-700 block mb-1">Cover Message:</span>
+                                  "{app.message}"
+                                </p>
+                              )}
+                              {app.interests && app.interests.length > 0 && (
+                                <div className="flex flex-wrap gap-1 items-center mt-1">
+                                  <span className="font-semibold text-slate-700 mr-1">Interests:</span>
+                                  {app.interests.map(interest => (
+                                    <span key={interest} className="inline-block bg-[#0096C7]/10 text-[#023E8A] px-2 py-0.5 rounded text-[10px] font-medium font-sans">
+                                      {interest}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {app.how_heard && (
+                                <p className="text-[11px] text-slate-400 italic">
+                                  How heard: {app.how_heard}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Action Buttons */}
+                            {app.status === "pending" && (
+                              <div className="flex justify-end gap-2 mt-1">
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => handleDeclineApplication(app.id)}
+                                  className="text-xs py-2 px-4 hover:bg-rose-50 hover:text-rose-600 hover:bg-opacity-80"
+                                >
+                                  Decline
+                                </Button>
+                                <Button
+                                  onClick={() => handleApproveApplication(app)}
+                                  className="text-xs py-2 px-4 bg-[#0096C7] hover:bg-[#023E8A]"
+                                >
+                                  Approve & Enroll
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+
+                        {applications.length === 0 && (
+                          <div className="p-12 text-center text-slate-400 italic text-xs">No volunteer applications found.</div>
                         )}
                       </div>
                     </div>

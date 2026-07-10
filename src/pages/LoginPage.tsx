@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Waves, Mail, Lock, UserCheck, ArrowRight, ShieldCheck, Info } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
-import { Button, Input } from "../components/UI";
+import { Button, Input, Modal } from "../components/UI";
 import { supabase } from "../supabaseClient";
 import { Profile } from "../types";
 
@@ -22,6 +22,33 @@ export default function LoginPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [tempUser, setTempUser] = useState<Profile | null>(null);
+
+  // Forgot Password state
+  const [isForgotOpen, setIsForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [isSendingForgot, setIsSendingForgot] = useState(false);
+  const [forgotSuccess, setForgotSuccess] = useState(false);
+
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail) {
+      showToast("Please enter your registered email address", "error");
+      return;
+    }
+    setIsSendingForgot(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+        redirectTo: `${window.location.origin}/login`,
+      });
+      if (error) throw error;
+      setForgotSuccess(true);
+      showToast("Password reset email sent successfully", "success");
+    } catch (err: any) {
+      showToast(err.message || "Failed to trigger password reset", "error");
+    } finally {
+      setIsSendingForgot(false);
+    }
+  };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -209,9 +236,17 @@ export default function LoginPage() {
                 />
 
                 <div className="text-right">
-                  <span className="text-xs text-slate-400 hover:text-cyan transition cursor-help">
-                    Forgot password? Contact coordinator.
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotEmail("");
+                      setForgotSuccess(false);
+                      setIsForgotOpen(true);
+                    }}
+                    className="text-xs text-slate-500 hover:text-cyan transition cursor-pointer font-semibold underline focus:outline-none"
+                  >
+                    Forgot Password?
+                  </button>
                 </div>
 
                 <Button type="submit" isLoading={isLoading} className="w-full mt-2">
@@ -266,6 +301,50 @@ export default function LoginPage() {
           )}
         </div>
       </div>
+
+      <Modal
+        isOpen={isForgotOpen}
+        onClose={() => setIsForgotOpen(false)}
+        title="Reset Secure Password"
+        size="sm"
+      >
+        {forgotSuccess ? (
+          <div className="text-center p-4">
+            <div className="w-12 h-12 bg-emerald-50 rounded-full border border-emerald-100 flex items-center justify-center mx-auto mb-4">
+              <Waves className="w-6 h-6 text-emerald-600" />
+            </div>
+            <h3 className="font-serif font-black text-lg text-deep mb-2">Check Your Inbox</h3>
+            <p className="text-xs text-slate-500 leading-relaxed mb-6">
+              A password reset link has been dispatched to <span className="font-bold text-deep">{forgotEmail}</span>. Follow the instructions to create a new secure password.
+            </p>
+            <Button onClick={() => setIsForgotOpen(false)} className="w-full">
+              Close
+            </Button>
+          </div>
+        ) : (
+          <form onSubmit={handleForgotSubmit} className="flex flex-col gap-4">
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Enter your registered email address and we'll send you an encrypted link to reset your secure password.
+            </p>
+            <Input
+              label="Registered Email"
+              type="email"
+              placeholder="name@oceanschool.org"
+              value={forgotEmail}
+              onChange={(e) => setForgotEmail(e.target.value)}
+              required
+            />
+            <div className="flex gap-2 justify-end mt-4">
+              <Button type="button" variant="ghost" onClick={() => setIsForgotOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" isLoading={isSendingForgot}>
+                Send Reset Link
+              </Button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </div>
   );
 }

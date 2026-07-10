@@ -12,6 +12,7 @@ import VolunteerPortal from "./pages/VolunteerPortal";
 import StaffDashboard from "./pages/StaffDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import Bootstrap from "./pages/Bootstrap";
+import JoinPage from "./pages/JoinPage";
 
 // Protected Route Guard
 function ProtectedRoute({ children, role }: { children: React.ReactNode; role: "admin" | "staff" | "volunteer" }) {
@@ -92,6 +93,7 @@ export default function App() {
                 </PublicOnlyRoute>
               } 
             />
+            <Route path="/join" element={<JoinPage />} />
             <Route 
               path="/login" 
               element={

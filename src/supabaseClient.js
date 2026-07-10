@@ -1,4 +1,93 @@
 /*
+-- =============================================
+-- RUN IN SUPABASE SQL EDITOR — Final Schema
+-- =============================================
+
+-- Hours log: detailed per-activity hours history
+create table if not exists hours_log (
+  id uuid primary key default gen_random_uuid(),
+  volunteer_id uuid references profiles(id) not null,
+  logged_by_staff_id uuid references profiles(id) not null,
+  hours numeric(4,1) not null check (hours > 0),
+  activity_date date not null,
+  description text not null,
+  linked_opportunity_id uuid references opportunities(id),
+  created_at timestamptz default now()
+);
+alter table hours_log enable row level security;
+create policy "hours_log access" on hours_log for all
+  using (
+    volunteer_id = auth.uid()
+    or logged_by_staff_id = auth.uid()
+    or exists (select 1 from profiles where id = auth.uid() and role = 'admin')
+  )
+  with check (
+    logged_by_staff_id = auth.uid()
+    or exists (select 1 from profiles where id = auth.uid() and role = 'admin')
+  );
+
+-- Volunteer applications: public self-registration interest form
+create table if not exists volunteer_applications (
+  id uuid primary key default gen_random_uuid(),
+  full_name text not null,
+  email text not null,
+  phone text,
+  site_preference text,
+  interests text[],
+  availability text,
+  how_heard text,
+  message text,
+  status text check (status in ('pending', 'approved', 'declined')) default 'pending',
+  reviewed_by uuid references profiles(id),
+  reviewed_at timestamptz,
+  created_at timestamptz default now()
+);
+alter table volunteer_applications enable row level security;
+create policy "staff and admin see applications" on volunteer_applications for all
+  using (exists (select 1 from profiles where id = auth.uid() and role in ('admin','staff')))
+  with check (true);
+create policy "public can insert applications" on volunteer_applications for insert
+  with check (true);
+
+-- Notifications
+create table if not exists notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references profiles(id) not null,
+  type text not null,
+  title text not null,
+  body text not null,
+  read boolean default false,
+  link text,
+  created_at timestamptz default now()
+);
+alter table notifications enable row level security;
+create policy "own notifications" on notifications for all
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Join requests
+create table if not exists join_requests (
+  id uuid primary key default gen_random_uuid(),
+  from_id uuid references profiles(id) not null,
+  to_id uuid references profiles(id) not null,
+  type text check (type in ('volunteer_to_staff', 'staff_to_volunteer')) not null,
+  status text check (status in ('pending', 'accepted', 'declined')) default 'pending',
+  message text,
+  created_at timestamptz default now(),
+  resolved_at timestamptz
+);
+alter table join_requests enable row level security;
+create policy "join_request access" on join_requests for all
+  using (from_id = auth.uid() or to_id = auth.uid()
+    or exists (select 1 from profiles where id = auth.uid() and role = 'admin'))
+  with check (from_id = auth.uid() or to_id = auth.uid()
+    or exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
+
+-- Enable realtime on new tables
+alter publication supabase_realtime add table notifications;
+alter publication supabase_realtime add table join_requests;
+*/
+
+/*
 -- Run this in Supabase SQL Editor if tables don't exist yet
 
 create table if not exists profiles (

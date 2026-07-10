@@ -144,7 +144,36 @@ export interface Notification {
   title: string;
   body: string;
   read: boolean;
-  link?: string;
+  link?: string | null;
   created_at: string;
 }
+
+export interface HoursLog {
+  id: string;
+  volunteer_id: string;
+  logged_by_staff_id: string;
+  hours: number;
+  hours_count?: number;
+  activity_date: string;
+  description: string;
+  linked_opportunity_id: string | null;
+  created_at: string;
+}
+
+export interface VolunteerApplication {
+  id: string;
+  full_name: string;
+  email: string;
+  phone?: string;
+  site_preference?: string;
+  interests?: string[];
+  availability?: string;
+  how_heard?: string;
+  message?: string;
+  status: 'pending' | 'approved' | 'declined';
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  created_at: string;
+}
+
 
