@@ -3,13 +3,14 @@ import { motion, AnimatePresence } from "motion/react";
 import { 
   Waves, Anchor, User, Calendar, CheckSquare, MessageSquare, 
   BarChart3, ShieldAlert, Award, Send, CheckCircle2, Clock, 
-  AlertCircle, ArrowRight, UserCheck, Trash2, Info 
+  AlertCircle, ArrowRight, UserCheck, Trash2, Info, Users, PlusCircle, X, Check, CheckCircle
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { Button, Input, Select, Badge, Card, Avatar } from "../components/UI";
-import { VolunteerWithProfile, OpportunityWithSite, Task, Message } from "../types";
+import { VolunteerWithProfile, OpportunityWithSite, Task, Message, JoinRequest, Profile } from "../types";
 import { supabase } from "../supabaseClient";
+import { NotificationBell } from "../components/NotificationBell";
 
 function SkeletonCard() {
   return (
@@ -52,6 +53,9 @@ export default function VolunteerPortal() {
   const [myTasks, setMyTasks] = useState<Task[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [sites, setSites] = useState<any[]>([]);
+  const [myUnitTeam, setMyUnitTeam] = useState<any[]>([]);
+  const [coordinatorsList, setCoordinatorsList] = useState<Profile[]>([]);
+  const [myJoinRequests, setMyJoinRequests] = useState<JoinRequest[]>([]);
   const [stats, setStats] = useState<any>({
     hours: 0,
     visits: 0,
@@ -109,9 +113,61 @@ export default function VolunteerPortal() {
         setVolDetail(detail);
         setEditSitePref(volData.site_preference_id || "");
         setEditEmergencyContact(volData.emergency_contact || "");
+
+        // Fetch team members in the same unit
+        if (volData.coordinator_id) {
+          const { data: uvData } = await supabase
+            .from("volunteers")
+            .select("*, profile:profiles!volunteers_profile_id_fkey(*)")
+            .eq("coordinator_id", volData.coordinator_id);
+          
+          const mappedTeam = (uvData || [])
+            .filter(v => v && v.profile)
+            .map(v => ({
+              ...v,
+              full_name: v.profile?.full_name || "Active Volunteer",
+              hours_logged: v.hours_logged || 0
+            }));
+          setMyUnitTeam(mappedTeam);
+        }
       }
 
-      // 2. Fetch open opportunities
+      // 2. Fetch coordinators list
+      const { data: coordsData } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("role", "staff");
+      setCoordinatorsList(coordsData || []);
+
+      // 3. Fetch join requests involving this volunteer
+      const { data: reqsData } = await supabase
+        .from("join_requests")
+        .select("*")
+        .or(`from_id.eq.${user.id},to_id.eq.${user.id}`)
+        .order("created_at", { ascending: false });
+
+      let enrichedRequests: JoinRequest[] = [];
+      if (reqsData) {
+        const staffIds = reqsData.map(r => r.from_id === user.id ? r.to_id : r.from_id).filter(Boolean);
+        const { data: staffProfiles } = await supabase
+          .from("profiles")
+          .select("*")
+          .in("id", staffIds);
+
+        const profileMap = (staffProfiles || []).reduce((acc: any, p: any) => {
+          if (p && p.id) acc[p.id] = p;
+          return acc;
+        }, {});
+
+        enrichedRequests = reqsData.map(r => ({
+          ...r,
+          from_profile: r.from_id === user.id ? user : profileMap[r.from_id],
+          to_profile: r.to_id === user.id ? user : profileMap[r.to_id]
+        }));
+      }
+      setMyJoinRequests(enrichedRequests);
+
+      // 4. Fetch open opportunities
       const { data: oppsData, error: oppsErr } = await supabase
         .from("opportunities")
         .select("*, site:sites(name)")
@@ -120,7 +176,7 @@ export default function VolunteerPortal() {
 
       if (oppsErr) throw new Error(oppsErr.message);
 
-      // 3. Fetch signups for this volunteer
+      // 5. Fetch signups for this volunteer
       const { data: signupsData, error: signupsErr } = await supabase
         .from("opportunity_signups")
         .select("*, opportunity:opportunities(*, site:sites(name))")
@@ -128,7 +184,7 @@ export default function VolunteerPortal() {
 
       if (signupsErr) throw new Error(signupsErr.message);
 
-      // 4. Fetch signup counts
+      // 6. Fetch signup counts
       const { data: allSignups, error: allSignupsErr } = await supabase
         .from("opportunity_signups")
         .select("opportunity_id");
@@ -136,7 +192,9 @@ export default function VolunteerPortal() {
       if (allSignupsErr) throw new Error(allSignupsErr.message);
 
       const signupCounts = (allSignups || []).reduce((acc: any, s: any) => {
-        acc[s.opportunity_id] = (acc[s.opportunity_id] || 0) + 1;
+        if (s && s.opportunity_id) {
+          acc[s.opportunity_id] = (acc[s.opportunity_id] || 0) + 1;
+        }
         return acc;
       }, {});
 
@@ -144,13 +202,13 @@ export default function VolunteerPortal() {
       const mappedOpps: OpportunityWithSite[] = (oppsData || []).map(o => ({
         ...o,
         is_signed_up: signedUpOppIds.has(o.id),
-        signup_count: signupCounts[o.id] || 0,
+        signup_count: o?.id ? signupCounts[o.id] || 0 : 0,
         site: o.site
       }));
 
       setOpportunities(mappedOpps);
 
-      // 5. Fetch tasks
+      // 7. Fetch tasks
       const { data: tasksData, error: tasksErr } = await supabase
         .from("tasks")
         .select("*, assigned_by:profiles!tasks_assigned_by_staff_id_fkey(full_name)")
@@ -160,7 +218,7 @@ export default function VolunteerPortal() {
       if (tasksErr) throw new Error(tasksErr.message);
       setMyTasks(tasksData || []);
 
-      // 6. Fetch sites
+      // 8. Fetch sites
       const { data: sitesData, error: sitesErr } = await supabase
         .from("sites")
         .select("*")
@@ -169,7 +227,7 @@ export default function VolunteerPortal() {
       if (sitesErr) throw new Error(sitesErr.message);
       setSites(sitesData || []);
 
-      // 7. Stats
+      // 9. Stats
       const { count: globalVolunteersCount, error: countErr } = await supabase
         .from("volunteers")
         .select("*", { count: "exact", head: true });
@@ -389,12 +447,108 @@ export default function VolunteerPortal() {
 
       if (error) throw new Error(error.message);
 
+      // Create staff notification
+      await supabase.from("notifications").insert({
+        user_id: volDetail.coordinator_id,
+        type: "new_message",
+        title: "New Message from Volunteer",
+        body: newMessageText.trim().slice(0, 80),
+        read: false
+      });
+
       setNewMessageText("");
       fetchMessages();
     } catch (err: any) {
       showToast(err.message || "Message transmission failed", "error");
     } finally {
       setIsSendingMessage(false);
+    }
+  };
+
+  // Accept/Decline coordinator invitation
+  const handleAcceptInvite = async (req: JoinRequest) => {
+    try {
+      // Update invite status
+      const { error: reqErr } = await supabase
+        .from("join_requests")
+        .update({ status: "accepted" })
+        .eq("id", req.id);
+
+      if (reqErr) throw new Error(reqErr.message);
+
+      // Set volunteer's coordinator
+      const { error: volErr } = await supabase
+        .from("volunteers")
+        .update({ coordinator_id: req.from_id })
+        .eq("profile_id", user!.id);
+
+      if (volErr) throw new Error(volErr.message);
+
+      // Notify Coordinator
+      await supabase.from("notifications").insert({
+        user_id: req.from_id,
+        type: "request_accepted",
+        title: "Unit Invitation Accepted",
+        body: `${user!.full_name} has accepted your invitation to join your unit.`,
+        read: false
+      });
+
+      showToast("You have successfully joined the coordinator's restoration unit!", "success");
+      loadAllData();
+    } catch (err: any) {
+      showToast(err.message || "Failed to accept unit invitation", "error");
+    }
+  };
+
+  const handleDeclineInvite = async (req: JoinRequest) => {
+    try {
+      const { error } = await supabase
+        .from("join_requests")
+        .update({ status: "declined" })
+        .eq("id", req.id);
+
+      if (error) throw new Error(error.message);
+
+      showToast("Unit invitation declined", "info");
+      loadAllData();
+    } catch (err: any) {
+      showToast(err.message || "Failed to decline invitation", "error");
+    }
+  };
+
+  // Request to join a Coordinator's unit
+  const handleRequestJoinUnit = async (coordId: string) => {
+    try {
+      // Check if pending request exists
+      const hasPending = myJoinRequests.some(r => r.to_id === coordId && r.status === "pending");
+      if (hasPending) {
+        showToast("You already have a pending join request with this coordinator.", "warning");
+        return;
+      }
+
+      const { error } = await supabase.from("join_requests").insert({
+        from_id: user!.id,
+        to_id: coordId,
+        type: "volunteer_to_staff",
+        status: "pending",
+        message: "I would like to request to join your marine restoration team."
+      });
+
+      if (error) throw new Error(error.message);
+
+      // Notify staff
+      await supabase.from("notifications").insert({
+        user_id: coordId,
+        type: "join_request",
+        title: "New Team Unit Request",
+        body: `${user!.full_name} has requested to join your restoration unit.`,
+        read: false
+      });
+
+      showToast("Request to join restoration unit sent to coordinator!", "success");
+      loadAllData();
+    } catch (err: any) {
+      showToast(err.message || "Failed to transmit join request", "error");
     }
   };
 
@@ -472,6 +626,9 @@ export default function VolunteerPortal() {
         </div>
 
         <div className="flex items-center gap-4">
+          {/* Notification bell next to Sign Out */}
+          <NotificationBell />
+
           <div className="flex items-center gap-2 text-right hidden sm:block">
             <span className={`text-xs font-bold block leading-none ${depth < 15 ? "text-deep" : "text-white"}`}>{user?.full_name}</span>
             <span className={`text-[10px] font-mono font-bold tracking-wider ${depth < 15 ? "text-cyan" : "text-aqua"}`}>{volDetail?.volunteer_code}</span>
@@ -790,6 +947,102 @@ export default function VolunteerPortal() {
                           </div>
                         )}
                       </Card>
+                    </div>
+
+                    {/* NEW JOIN UNIT & TEAM SECTION */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      
+                      {/* Coordinator & Unit Team */}
+                      <Card title="My Active Field Unit" subtitle="Collaboration team in your regional sector" className="md:col-span-2" glass="dark">
+                        {volDetail?.coordinator_id ? (
+                          <div className="flex flex-col gap-4">
+                            <div className="flex items-center gap-3.5 bg-white/5 p-4 rounded-xl border border-white/10">
+                              <Avatar name={coordinatorName} size="md" />
+                              <div>
+                                <h4 className="text-sm font-bold text-white">{coordinatorName}</h4>
+                                <p className="text-xs text-slate-300">Your assigned Staff Coordinator Lead</p>
+                              </div>
+                            </div>
+
+                            <div className="mt-2">
+                              <h5 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Unit Team Members</h5>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                {myUnitTeam.map((teamVol, idx) => (
+                                  <div key={idx} className="p-3 rounded-lg bg-white/5 border border-white/5 flex justify-between items-center text-xs">
+                                    <div className="flex items-center gap-2.5 truncate">
+                                      <Avatar name={teamVol.full_name} size="sm" />
+                                      <span className="font-semibold text-white truncate">{teamVol.full_name}</span>
+                                    </div>
+                                    <span className="text-[10px] text-emerald-400 font-mono shrink-0">{teamVol.hours_logged}h</span>
+                                  </div>
+                                ))}
+                                {myUnitTeam.length <= 1 && (
+                                  <div className="col-span-full p-4 text-center text-slate-400 italic text-xs">You are currently the only volunteer in this active unit.</div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-6 text-center text-white">
+                            <Users className="w-10 h-10 text-cyan mx-auto mb-2" />
+                            <h4 className="font-bold text-sm">No Coordinator Unit Assigned</h4>
+                            <p className="text-xs text-slate-300 mt-1">
+                              You are not currently assigned to any active coordinator unit. Please accept an invite or apply to a team on the right.
+                            </p>
+                          </div>
+                        )}
+                      </Card>
+
+                      {/* Invitations & Request to Join */}
+                      <Card title="Unit Invitations & Applications" subtitle="Manage your regional coordinator invitations" className="md:col-span-1" glass="dark">
+                        <div className="flex flex-col gap-4">
+                          
+                          {/* Active Invitations from Coordinators */}
+                          <div className="flex flex-col gap-2">
+                            <h5 className="text-[10px] font-bold text-[#62B6CB] uppercase tracking-wider">Incoming Unit Invitations</h5>
+                            {myJoinRequests.filter(r => r.to_id === user!.id && r.status === "pending").map(req => (
+                              <div key={req.id} className="p-3 bg-white/10 rounded-lg border border-white/10 text-xs">
+                                <p className="font-bold text-white">{req.from_profile?.full_name}</p>
+                                <p className="text-[10px] text-slate-300 italic mt-1 font-mono leading-relaxed">"{req.message}"</p>
+                                <div className="flex gap-2 mt-3">
+                                  <Button onClick={() => handleAcceptInvite(req)} className="text-[10px] py-1.5 px-3 min-h-[34px] bg-[#0096C7]">Accept</Button>
+                                  <Button onClick={() => handleDeclineInvite(req)} variant="secondary" className="text-[10px] py-1.5 px-3 min-h-[34px]">Decline</Button>
+                                </div>
+                              </div>
+                            ))}
+                            {myJoinRequests.filter(r => r.to_id === user!.id && r.status === "pending").length === 0 && (
+                              <p className="text-xs text-slate-400 italic">No incoming invitations.</p>
+                            )}
+                          </div>
+
+                          {/* Request to join other coordinators */}
+                          <div className="border-t border-white/10 pt-3 flex flex-col gap-2">
+                            <h5 className="text-[10px] font-bold text-[#62B6CB] uppercase tracking-wider">Request to Join Unit</h5>
+                            <div className="max-h-[160px] overflow-y-auto pr-1 flex flex-col gap-2">
+                              {coordinatorsList.filter(c => c.id !== volDetail?.coordinator_id).map(coord => {
+                                const requestStatus = myJoinRequests.find(r => r.to_id === coord.id && r.from_id === user!.id)?.status;
+                                return (
+                                  <div key={coord.id} className="p-2.5 bg-white/5 border border-white/5 rounded-lg flex justify-between items-center text-xs">
+                                    <span className="font-semibold text-white truncate max-w-[120px]">{coord.full_name}</span>
+                                    {requestStatus ? (
+                                      <span className="text-[10px] font-mono uppercase font-bold text-cyan">{requestStatus}</span>
+                                    ) : (
+                                      <button 
+                                        onClick={() => handleRequestJoinUnit(coord.id)}
+                                        className="text-[10px] font-bold text-[#62B6CB] hover:text-white flex items-center gap-1 cursor-pointer min-h-[34px] p-1.5 rounded hover:bg-white/10"
+                                      >
+                                        Apply
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                        </div>
+                      </Card>
+
                     </div>
 
                     <Card title={`Conversation with Coordinator: ${coordinatorName}`} subtitle="Direct secure 1:1 messenger. Check in for instructions." glass="dark">

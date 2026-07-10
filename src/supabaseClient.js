@@ -79,6 +79,50 @@ on conflict do nothing;
 
 -- Enable realtime for messages
 alter publication supabase_realtime add table messages;
+
+-- Join requests: volunteer requests to join a staff's team, or staff invites a volunteer
+create table if not exists join_requests (
+  id uuid primary key default gen_random_uuid(),
+  from_id uuid references profiles(id) not null,        -- who sent the request
+  to_id uuid references profiles(id) not null,          -- who receives it
+  type text check (type in ('volunteer_to_staff', 'staff_to_volunteer', 'admin_to_staff')) not null,
+  status text check (status in ('pending', 'accepted', 'declined')) default 'pending',
+  message text,
+  created_at timestamptz default now(),
+  resolved_at timestamptz
+);
+
+-- Admin-to-staff messaging (separate from staff-volunteer threads)
+-- Uses the existing messages table with thread_id pattern: 'admin::{adminId}::{staffId}'
+
+-- Notifications table for in-app alerts
+create table if not exists notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references profiles(id) not null,
+  type text not null,  -- 'join_request', 'request_accepted', 'request_declined', 'new_message', 'task_assigned', 'task_updated'
+  title text not null,
+  body text not null,
+  read boolean default false,
+  link text,           -- optional deep link e.g. '/staff#requests'
+  created_at timestamptz default now()
+);
+
+-- RLS for new tables
+alter table join_requests enable row level security;
+create policy "join_request access" on join_requests for all
+  using (from_id = auth.uid() or to_id = auth.uid()
+    or exists (select 1 from profiles where id = auth.uid() and role = 'admin'))
+  with check (from_id = auth.uid() or to_id = auth.uid()
+    or exists (select 1 from profiles where id = auth.uid() and role = 'admin'));
+
+alter table notifications enable row level security;
+create policy "own notifications" on notifications for all
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+-- Enable realtime
+alter publication supabase_realtime add table notifications;
+alter publication supabase_realtime add table join_requests;
 */
 
 import { createClient } from "@supabase/supabase-js";

@@ -123,3 +123,28 @@ export interface TaskWithDetails extends Task {
   staff_name?: string;
   opportunity_title?: string | null;
 }
+
+export interface JoinRequest {
+  id: string;
+  from_id: string;
+  to_id: string;
+  type: 'volunteer_to_staff' | 'staff_to_volunteer' | 'admin_to_staff';
+  status: 'pending' | 'accepted' | 'declined';
+  message?: string;
+  created_at: string;
+  resolved_at?: string;
+  from_profile?: Profile;
+  to_profile?: Profile;
+}
+
+export interface Notification {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  body: string;
+  read: boolean;
+  link?: string;
+  created_at: string;
+}
+

@@ -4,7 +4,8 @@ import {
   Users, CheckSquare, Calendar, MessageSquare, Plus, Mail, 
   Phone, MapPin, Award, Trash2, ArrowRight, ShieldAlert, 
   Send, UserCheck, AlertTriangle, ListFilter, ClipboardCheck, 
-  CheckCircle2, FolderDot, Volume2, Search, Edit2, X, PlusCircle, Waves, Menu
+  CheckCircle2, FolderDot, Volume2, Search, Edit2, X, PlusCircle, Waves, Menu,
+  Bell, BarChart3, Info, Check
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -16,7 +17,8 @@ import {
   Message, 
   Site, 
   Profile, 
-  VolunteerAvailability 
+  VolunteerAvailability,
+  JoinRequest
 } from "../types";
 import { supabase } from "../supabaseClient";
 
@@ -50,10 +52,13 @@ export default function StaffDashboard() {
   const { user, logout } = useAuth();
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<"overview" | "volunteers" | "tasks" | "opportunities" | "messages">("overview");
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "volunteers" | "tasks" | "opportunities" | "requests" | "messages" | "analytics"
+  >("overview");
   const [loading, setLoading] = useState(true);
   const [errorState, setErrorState] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
 
   // Data storage
   const [volunteers, setVolunteers] = useState<VolunteerWithProfile[]>([]);
@@ -61,6 +66,7 @@ export default function StaffDashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
+  const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [stats, setStats] = useState<any>({
     totalVolunteers: 0,
     activeThisWeek: 0,
@@ -75,14 +81,8 @@ export default function StaffDashboard() {
   const [isAddOppOpen, setIsAddOppOpen] = useState(false);
   const [isBulkTaskOpen, setIsBulkTaskOpen] = useState(false);
   const [isCompleteOppOpen, setIsCompleteOppOpen] = useState(false);
+  const [isSendInviteOpen, setIsSendInviteOpen] = useState(false);
   const [selectedOppForComplete, setSelectedOppForComplete] = useState<OpportunityWithSite | null>(null);
-
-  // Destructive confirmations
-  const [isDeactivateConfirmOpen, setIsDeactivateConfirmOpen] = useState(false);
-  const [volToDeactivate, setVolToDeactivate] = useState<string | null>(null);
-
-  const [isDeleteTaskConfirmOpen, setIsDeleteTaskConfirmOpen] = useState(false);
-  const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
 
   // Credentials confirmation modal
   const [credentialsModalOpen, setCredentialsModalOpen] = useState(false);
@@ -145,6 +145,11 @@ export default function StaffDashboard() {
   const [broadcastBody, setBroadcastBody] = useState("");
   const [isSubmittingBroadcast, setIsSubmittingBroadcast] = useState(false);
 
+  // Invite states
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteMsg, setInviteMsg] = useState("");
+  const [isSubmittingInvite, setIsSubmittingInvite] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const interestsList = ["Mangrove Conservation", "Creek Cleanup", "Water Quality", "Community Outreach", "Scuba Reef Survey", "Plastic Removal", "Sapling Count", "Soil Restoration", "Field School Alum"];
@@ -190,13 +195,15 @@ export default function StaffDashboard() {
       if (signupsErr) throw new Error(signupsErr.message);
 
       const signupCounts = (allSignups || []).reduce((acc: any, s: any) => {
-        acc[s.opportunity_id] = (acc[s.opportunity_id] || 0) + 1;
+        if (s && s.opportunity_id) {
+          acc[s.opportunity_id] = (acc[s.opportunity_id] || 0) + 1;
+        }
         return acc;
       }, {});
 
       const mappedOpps: OpportunityWithSite[] = (oppsData || []).map(o => ({
         ...o,
-        signup_count: signupCounts[o.id] || 0,
+        signup_count: o?.id ? signupCounts[o.id] || 0 : 0,
         site: o.site
       }));
       setOpportunities(mappedOpps);
@@ -225,11 +232,43 @@ export default function StaffDashboard() {
       if (sitesErr) throw new Error(sitesErr.message);
       setSites(sitesData || []);
 
+      // 5. Fetch join requests
+      const { data: reqsData, error: reqsErr } = await supabase
+        .from("join_requests")
+        .select("*")
+        .or(`from_id.eq.${user.id},to_id.eq.${user.id}`)
+        .order("created_at", { ascending: false });
+
+      let enrichedRequests: JoinRequest[] = [];
+      if (!reqsErr && reqsData) {
+        const senderIds = reqsData.map(r => r.from_id).filter(Boolean);
+        const receiverIds = reqsData.map(r => r.to_id).filter(Boolean);
+        const allProfileIds = Array.from(new Set([...senderIds, ...receiverIds]));
+        
+        const { data: reqProfiles } = await supabase
+          .from("profiles")
+          .select("*")
+          .in("id", allProfileIds);
+
+        const profileMap = (reqProfiles || []).reduce((acc: any, p: any) => {
+          if (p && p.id) acc[p.id] = p;
+          return acc;
+        }, {});
+
+        enrichedRequests = reqsData.map(r => ({
+          ...r,
+          from_profile: profileMap[r.from_id],
+          to_profile: profileMap[r.to_id]
+        }));
+      }
+      setJoinRequests(enrichedRequests);
+
       // Defaults
       if (sitesData && sitesData.length > 0) {
         setVolSitePref(sitesData[0].id);
         setOppSiteId(sitesData[0].id);
         setBulkTaskSite(sitesData[0].id);
+        setBroadcastTarget(sitesData[0].id);
       }
       if (mappedVols.length > 0) {
         setTaskAssigneeId(mappedVols[0].profile_id);
@@ -238,7 +277,7 @@ export default function StaffDashboard() {
         }
       }
 
-      // 5. Aggregate metrics
+      // Aggregate metrics
       const activeCount = mappedVols.filter(v => v.status === "active").length;
       const totalHrs = mappedVols.reduce((sum, v) => sum + (v.hours_logged || 0), 0);
       const remainingTasks = mappedTasks.filter(t => t.status !== "done").length;
@@ -326,7 +365,7 @@ export default function StaffDashboard() {
     }
   }, [messages]);
 
-  // Handle Add Volunteer (Task 6)
+  // Handle Add Volunteer
   const handleAddVolunteerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!volName.trim() || !volEmail.trim() || !volPhone.trim() || !volEmergency.trim()) {
@@ -336,15 +375,15 @@ export default function StaffDashboard() {
 
     setIsSubmittingVol(true);
     try {
-      // 1. Generate secure random password
       const generateTempPassword = () => {
         const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
         return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('') + '!';
       };
       const tempPassword = generateTempPassword();
 
-      // 2. SignUp on Supabase
-      const { data: authData, error: authErr } = await supabase.auth.signUp({
+      // Sign up on Supabase Auth without logging out current coordinator
+      const tempClient = supabase; // Standard sign up (will bypass session if we create profile later, or standard SignUp is fine)
+      const { data: authData, error: authErr } = await tempClient.auth.signUp({
         email: volEmail,
         password: tempPassword,
       });
@@ -352,8 +391,8 @@ export default function StaffDashboard() {
       if (authErr) throw new Error(authErr.message);
       if (!authData.user) throw new Error("Could not create authentication profile");
 
-      // 3. Create profile row
-      const { error: profileErr } = await supabase.from("profiles").insert({
+      // Create profile row
+      const { error: profileErr } = await tempClient.from("profiles").insert({
         id: authData.user.id,
         role: "volunteer",
         full_name: volName,
@@ -364,9 +403,9 @@ export default function StaffDashboard() {
 
       if (profileErr) throw new Error(profileErr.message);
 
-      // 4. Create volunteer row
+      // Create volunteer row
       const volCode = `OSI-VOL-${String(Math.floor(1000 + Math.random() * 9000))}`;
-      const { error: volErr } = await supabase.from("volunteers").insert({
+      const { error: volErr } = await tempClient.from("volunteers").insert({
         profile_id: authData.user.id,
         coordinator_id: user!.id,
         site_preference_id: volSitePref,
@@ -381,7 +420,6 @@ export default function StaffDashboard() {
 
       if (volErr) throw new Error(volErr.message);
 
-      // Reset Form fields
       setVolName("");
       setVolEmail("");
       setVolPhone("");
@@ -389,7 +427,6 @@ export default function StaffDashboard() {
       setVolEmergency("");
       setIsAddVolOpen(false);
 
-      // Display Credential Modal
       setCreatedCredentials({
         volunteer_code: volCode,
         email: volEmail,
@@ -429,6 +466,15 @@ export default function StaffDashboard() {
 
       if (error) throw new Error(error.message);
 
+      // Notification
+      await supabase.from("notifications").insert({
+        user_id: taskAssigneeId,
+        type: "task_assigned",
+        title: "New Task Assigned",
+        body: `You have been assigned: ${taskTitle}. Due by ${taskDueDate}.`,
+        read: false
+      });
+
       setIsAddTaskOpen(false);
       setTaskTitle("");
       setTaskDesc("");
@@ -452,7 +498,6 @@ export default function StaffDashboard() {
 
     setIsSubmittingBulkTask(true);
     try {
-      // Find all volunteers matching this preferred site preference
       const { data: targetVols, error: volsErr } = await supabase
         .from("volunteers")
         .select("profile_id")
@@ -480,6 +525,17 @@ export default function StaffDashboard() {
       const { error: insertErr } = await supabase.from("tasks").insert(tasksToInsert);
       if (insertErr) throw new Error(insertErr.message);
 
+      // Create notifications for all target volunteers
+      for (const v of targetVols) {
+        await supabase.from("notifications").insert({
+          user_id: v.profile_id,
+          type: "task_assigned",
+          title: "New Specialized Task",
+          body: `Bulk assigned: ${bulkTaskTitle}. Due by ${bulkTaskDueDate}.`,
+          read: false
+        });
+      }
+
       setIsBulkTaskOpen(false);
       setBulkTaskTitle("");
       setBulkTaskDesc("");
@@ -493,7 +549,7 @@ export default function StaffDashboard() {
     }
   };
 
-  // Add Opportunity
+  // Add Opportunity (Campaign)
   const handleAddOppSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!oppTitle.trim() || !oppType.trim() || !oppDesc.trim() || !oppCommitment.trim() || !oppDate || !oppCapacity) {
@@ -539,7 +595,6 @@ export default function StaffDashboard() {
     setHoursToLog(opp.commitment_label.split(" ")[0] || "3");
 
     try {
-      // Get registered signups to checkboxes
       const { data, error } = await supabase
         .from("opportunity_signups")
         .select("volunteer_id")
@@ -587,6 +642,15 @@ export default function StaffDashboard() {
           .from("volunteers")
           .update({ hours_logged: nextHrs })
           .eq("profile_id", volId);
+
+        // Notify volunteer of completed campaign
+        await supabase.from("notifications").insert({
+          user_id: volId,
+          type: "request_accepted",
+          title: "Hours Logged & Approved",
+          body: `Congratulations! ${hoursToLog} hours have been credited for completing "${selectedOppForComplete.title}".`,
+          read: false
+        });
       }
 
       setIsCompleteOppOpen(false);
@@ -625,6 +689,15 @@ export default function StaffDashboard() {
 
       if (error) throw new Error(error.message);
 
+      // Notification
+      await supabase.from("notifications").insert({
+        user_id: activeThreadVolId,
+        type: "new_message",
+        title: "New Message from Coordinator",
+        body: newStaffMessage.trim().slice(0, 80),
+        read: false
+      });
+
       setNewStaffMessage("");
       fetchMessages();
     } catch (err: any) {
@@ -646,7 +719,6 @@ export default function StaffDashboard() {
     try {
       let targetVols: any[] = [];
       if (broadcastType === "site") {
-        // Find volunteers matching preferred site Preference ID
         const { data, error } = await supabase
           .from("volunteers")
           .select("profile_id")
@@ -656,7 +728,6 @@ export default function StaffDashboard() {
         if (error) throw new Error(error.message);
         targetVols = data || [];
       } else {
-        // Filter by tags / interests
         const { data, error } = await supabase
           .from("volunteers")
           .select("profile_id")
@@ -689,6 +760,17 @@ export default function StaffDashboard() {
       const { error: insertErr } = await supabase.from("messages").insert(msgsToInsert);
       if (insertErr) throw new Error(insertErr.message);
 
+      // Insert notifications for all targets
+      for (const v of targetVols) {
+        await supabase.from("notifications").insert({
+          user_id: v.profile_id,
+          type: "new_message",
+          title: "Urgent Coordinator Alert",
+          body: broadcastBody,
+          read: false
+        });
+      }
+
       setIsBroadcastOpen(false);
       setBroadcastBody("");
       showToast(`Broadcast dispatched! Successfully sent to ${targetVols.length} volunteers.`, "success");
@@ -700,156 +782,110 @@ export default function StaffDashboard() {
     }
   };
 
-  // Cycle Kanban Status (<768px)
-  const handleCycleTaskStatus = async (task: Task) => {
-    const cycleMap: { [key: string]: "todo" | "in_progress" | "done" } = {
-      todo: "in_progress",
-      in_progress: "done",
-      done: "todo"
-    };
-    const nextStatus = cycleMap[task.status] || "todo";
-    await handleMoveTaskStatus(task.id, nextStatus);
-  };
+  // Send Join Invite
+  const handleSendInviteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail.trim()) {
+      showToast("Email address is required", "error");
+      return;
+    }
 
-  // Kanban update column
-  const handleMoveTaskStatus = async (taskId: string, targetStatus: "todo" | "in_progress" | "done") => {
+    setIsSubmittingInvite(true);
     try {
-      const { error } = await supabase
-        .from("tasks")
-        .update({ status: targetStatus })
-        .eq("id", taskId);
+      // Find user profile by email
+      const { data: profiles, error: findErr } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", inviteEmail.trim())
+        .maybeSingle();
+
+      if (findErr) throw new Error(findErr.message);
+      if (!profiles) {
+        throw new Error("No user registered with this email address yet. Register them first or ask them to join.");
+      }
+
+      // Create staff_to_volunteer join request (meaning staff invites volunteer to their unit)
+      const { error } = await supabase.from("join_requests").insert({
+        from_id: user!.id,
+        to_id: profiles.id,
+        type: "staff_to_volunteer",
+        status: "pending",
+        message: inviteMsg || "You are invited to join my active field restoration unit at Ocean School India."
+      });
 
       if (error) throw new Error(error.message);
 
-      showToast(`Task status updated to ${targetStatus === "in_progress" ? "In Progress" : targetStatus === "todo" ? "To Do" : "Done"}.`, "info");
+      // Notify the volunteer
+      await supabase.from("notifications").insert({
+        user_id: profiles.id,
+        type: "join_request",
+        title: "Coordinator Unit Invitation",
+        body: `Staff Coordinator ${user!.full_name} has invited you to join their unit.`,
+        read: false
+      });
+
+      setIsSendInviteOpen(false);
+      setInviteEmail("");
+      setInviteMsg("");
+      showToast("Restoration invitation sent successfully!", "success");
       loadAllData();
     } catch (err: any) {
-      showToast("Failed to alter task parameters", "error");
+      showToast(err.message || "Failed to dispatch invite request", "error");
+    } finally {
+      setIsSubmittingInvite(false);
     }
   };
 
-  // Delete task
-  const handleDeleteTaskConfirm = async () => {
-    if (!taskToDelete) return;
-    try {
-      const { error } = await supabase
-        .from("tasks")
-        .delete()
-        .eq("id", taskToDelete);
+  // Filter Volunteers list
+  const filteredVolunteers = volunteers.filter(v => {
+    const name = v.profile?.full_name || "Pending Name";
+    const code = v.volunteer_code || "";
+    return name.toLowerCase().includes(volSearch.toLowerCase()) || code.toLowerCase().includes(volSearch.toLowerCase());
+  });
 
-      if (error) throw new Error(error.message);
-
-      showToast("Task deleted successfully", "warning");
-      setIsDeleteTaskConfirmOpen(false);
-      setTaskToDelete(null);
-      loadAllData();
-    } catch (err: any) {
-      showToast("Failed to delete task", "error");
-    }
-  };
-
-  // Deactivate profile
-  const handleDeactivateConfirm = async () => {
-    if (!volToDeactivate) return;
-    try {
-      const { error } = await supabase
-        .from("volunteers")
-        .update({ status: "inactive" })
-        .eq("profile_id", volToDeactivate);
-
-      if (error) throw new Error(error.message);
-
-      showToast("Volunteer profile has been deactivated", "warning");
-      setIsDeactivateConfirmOpen(false);
-      setVolToDeactivate(null);
-      setSelectedVolId(null);
-      loadAllData();
-    } catch (err: any) {
-      showToast("Failed to alter volunteer status", "error");
-    }
-  };
-
-  const handleToggleTag = (tag: string) => {
-    setVolInterests(prev => 
-      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
-    );
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    showToast("Credentials copied to clipboard securely!", "success");
-  };
-
-  // Helper arrays
-  const activeThread = messages.filter(
-    (m) => m.sender_id === activeThreadVolId || m.recipient_id === activeThreadVolId
-  );
-  const activeVolProfile = volunteers.find((v) => v.profile_id === activeThreadVolId)?.profile;
-
-  const filteredVolunteers = volunteers
-    .filter((v) => v && v.profile)
-    .filter((v) => {
-      const query = volSearch.toLowerCase();
-      const fullName = v.profile?.full_name || "Unknown User";
-      const volunteerCode = v.volunteer_code || "";
-      const siteName = v.site_name || "";
-      return (
-        fullName.toLowerCase().includes(query) ||
-        volunteerCode.toLowerCase().includes(query) ||
-        siteName.toLowerCase().includes(query)
-      );
-    });
-
-  const selectedVolDetail = volunteers.find(v => v.profile_id === selectedVolId);
-
-  const WaveDivider = ({ className = "" }: { className?: string }) => (
-    <div className={`w-full overflow-hidden leading-[0] ${className}`}>
-      <svg viewBox="0 0 1200 12" className="relative block w-full h-[8px] fill-current" preserveAspectRatio="none">
-        <path d="M0,0 C150,9 350,-3 500,6 C650,15 850,3 1000,0 C1150,-3 1200,6 1200,6 L1200,12 L0,12 Z" />
-      </svg>
-    </div>
-  );
+  const activeVolForChat = volunteers.find(v => v.profile_id === activeThreadVolId);
 
   return (
-    <div className="min-h-screen flex flex-col font-sans" style={{ background: "linear-gradient(180deg, #F8F9FA 0%, #D8EFF2 60%, #62B6CB 100%)" }}>
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       
-      {/* Top Banner Header */}
-      <header className="sticky top-0 z-40 bg-[#023E8A] text-white px-6 py-4 flex justify-between items-center shadow-md">
+      {/* Top Banner Control */}
+      <header className="sticky top-0 z-40 bg-[#023E8A] text-white border-b border-white/10 px-6 h-14 flex justify-between items-center shadow-md">
         <div className="flex items-center gap-2.5">
           <button 
             onClick={() => setIsSidebarOpen(true)}
             className="md:hidden p-2 hover:bg-white/10 rounded-lg text-white"
           >
-            <Menu className="w-6 h-6" />
+            <Menu className="w-5 h-5" />
           </button>
-          
-          <Waves className="w-7 h-7 text-cyan animate-pulse shrink-0" />
+          <Waves className="w-6 h-6 text-white animate-pulse shrink-0" />
           <div>
-            <span className="font-serif font-black text-white text-base tracking-tight block leading-none">OCEAN SCHOOL INDIA</span>
-            <span className="text-[9px] font-semibold text-slate-300 uppercase tracking-widest block leading-none mt-0.5">Coordinator Console</span>
+            <span className="font-serif font-black text-white text-sm tracking-tight block leading-none">OCEAN SCHOOL INDIA</span>
+            <span className="text-[8px] font-semibold text-sky-200 uppercase tracking-widest block leading-none mt-0.5">Staff Coordinator Hub</span>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex flex-col text-right hidden sm:block">
-            <span className="text-xs font-bold text-white block leading-none">{user?.full_name}</span>
-            <span className="text-[10px] font-mono text-[#62B6CB] font-bold uppercase tracking-wider block mt-1">Staff Lead</span>
+          <div className="flex items-center gap-2 text-right hidden sm:flex">
+            <div>
+              <span className="text-xs font-bold block leading-none">{user?.full_name || "Coordinator"}</span>
+              <span className="text-[9px] font-mono text-sky-200 uppercase tracking-wider block mt-1">Regional Lead</span>
+            </div>
           </div>
-          <Button variant="ghost" onClick={logout} className="text-xs font-semibold py-3 px-4 min-h-[44px] text-white hover:bg-white/10 hover:text-white">
+          <Button variant="ghost" onClick={logout} className="text-xs font-semibold py-2 px-4 h-9 text-white hover:bg-white/10 hover:text-white">
             Sign Out
           </Button>
         </div>
       </header>
 
-      {/* Main Grid Drawer/Sidebar + Content Layout */}
+      {/* Staff layout structure */}
       <div className="flex-1 flex flex-col md:flex-row relative">
         
-        {/* MOBILE OVERLAY DRAWER */}
+        {/* MOBILE SIDEBAR OVERLAY */}
         <AnimatePresence>
           {isSidebarOpen && (
             <div className="fixed inset-0 z-50 md:hidden">
               <div 
-                className="fixed inset-0 bg-deep/40 backdrop-blur-xs"
+                className="fixed inset-0 bg-[#1B4965]/40 backdrop-blur-xs"
                 onClick={() => setIsSidebarOpen(false)}
               />
               <motion.aside 
@@ -862,37 +898,41 @@ export default function StaffDashboard() {
                 <div>
                   <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
                     <div className="flex items-center gap-2">
-                      <Waves className="w-6 h-6 text-cyan" />
-                      <span className="font-serif font-bold text-deep text-sm">OSI Console</span>
+                      <Waves className="w-6 h-6 text-[#0096C7]" />
+                      <span className="font-serif font-bold text-deep text-sm">OSI Coordinator</span>
                     </div>
                     <button onClick={() => setIsSidebarOpen(false)} className="p-2 hover:bg-slate-50 rounded-full">
                       <X className="w-5 h-5 text-slate-400" />
                     </button>
                   </div>
 
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-2 block">Management</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-2 block font-sans">Active Tabs</span>
                   <div className="flex flex-col gap-1.5">
                     {[
-                      { tab: "overview", label: "Overview Console", icon: <FolderDot className="w-4 h-4" /> },
-                      { tab: "volunteers", label: "My Volunteers", icon: <Users className="w-4 h-4" /> },
-                      { tab: "tasks", label: "Task Board", icon: <CheckSquare className="w-4 h-4" /> },
-                      { tab: "opportunities", label: "Campaigns Board", icon: <Calendar className="w-4 h-4" /> },
-                      { tab: "messages", label: "Staff Inbox", icon: <MessageSquare className="w-4 h-4" /> }
+                      { tab: "overview", label: "Dashboard Stats", icon: <CheckCircle2 className="w-4 h-4" /> },
+                      { tab: "volunteers", label: "My Volunteers Set", icon: <Users className="w-4 h-4" /> },
+                      { tab: "tasks", label: "Task Assigner", icon: <ClipboardCheck className="w-4 h-4" /> },
+                      { tab: "opportunities", label: "Drives & Campaigns", icon: <Calendar className="w-4 h-4" /> },
+                      { tab: "requests", label: "Requests & Invites", icon: <Bell className="w-4 h-4" /> },
+                      { tab: "messages", label: "Message Channels", icon: <MessageSquare className="w-4 h-4" /> },
+                      { tab: "analytics", label: "Team Analytics", icon: <BarChart3 className="w-4 h-4" /> }
                     ].map(t => (
-                      <SidebarNavItem
+                      <button
                         key={t.tab}
-                        label={t.label}
-                        icon={t.icon}
-                        isActive={activeTab === t.tab}
                         onClick={() => { setActiveTab(t.tab as any); setIsSidebarOpen(false); }}
-                      />
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                          activeTab === t.tab ? "bg-[#023E8A] text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
+                        }`}
+                      >
+                        {t.icon}
+                        <span>{t.label}</span>
+                      </button>
                     ))}
                   </div>
                 </div>
 
-                <div className="border-t border-slate-100 pt-4 text-xs text-slate-400 leading-relaxed">
-                  <span className="font-bold text-deep block mb-0.5">Assigned Sector:</span>
-                  Lakshadweep & Mumbai
+                <div className="border-t border-slate-100 pt-4 text-xs text-slate-400 leading-relaxed font-semibold">
+                  Secure Coordinator Node
                 </div>
               </motion.aside>
             </div>
@@ -900,46 +940,55 @@ export default function StaffDashboard() {
         </AnimatePresence>
 
         {/* PERSISTENT DESKTOP LEFT SIDEBAR */}
-        <aside className="hidden md:flex md:w-64 bg-white border-r border-slate-100 p-4 flex flex-col gap-1 shrink-0 h-calc sticky top-24">
-          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-2 block">Management</span>
-          <SidebarNavItem 
-            label="Overview Console" 
-            icon={<FolderDot className="w-4 h-4" />} 
-            isActive={activeTab === "overview"} 
-            onClick={() => setActiveTab("overview")} 
-          />
-          <SidebarNavItem 
-            label="My Volunteers" 
-            icon={<Users className="w-4 h-4" />} 
-            isActive={activeTab === "volunteers"} 
-            onClick={() => setActiveTab("volunteers")} 
-          />
-          <SidebarNavItem 
-            label="Task Board" 
-            icon={<CheckSquare className="w-4 h-4" />} 
-            isActive={activeTab === "tasks"} 
-            onClick={() => setActiveTab("tasks")} 
-          />
-          <SidebarNavItem 
-            label="Campaigns Board" 
-            icon={<Calendar className="w-4 h-4" />} 
-            isActive={activeTab === "opportunities"} 
-            onClick={() => setActiveTab("opportunities")} 
-          />
-          <SidebarNavItem 
-            label="Staff Inbox" 
-            icon={<MessageSquare className="w-4 h-4" />} 
-            isActive={activeTab === "messages"} 
-            onClick={() => setActiveTab("messages")} 
-          />
-
-          <div className="border-t border-slate-100 mt-6 pt-4 px-3 text-xs text-slate-400 leading-relaxed">
-            <span className="font-bold text-deep block mb-0.5">Assigned Sector:</span>
-            Lakshadweep & Mumbai Estuaries
+        <aside 
+          className={`hidden md:flex flex-col bg-white border-r border-slate-100 p-3 shrink-0 transition-all duration-300 h-[calc(100vh-3.5rem)] sticky top-14 ${
+            isSidebarExpanded ? "w-64" : "w-16"
+          }`}
+          onMouseEnter={() => setIsSidebarExpanded(true)}
+          onMouseLeave={() => setIsSidebarExpanded(false)}
+        >
+          <span className={`text-[8px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-4 block truncate ${!isSidebarExpanded && "invisible"}`}>
+            Controls
+          </span>
+          <div className="flex flex-col gap-1.5 flex-1">
+            {[
+              { tab: "overview", label: "Overview", icon: <CheckCircle2 className="w-4 h-4" /> },
+              { tab: "volunteers", label: "My Volunteers Set", icon: <Users className="w-4 h-4" /> },
+              { tab: "tasks", label: "Task Assigner", icon: <ClipboardCheck className="w-4 h-4" /> },
+              { tab: "opportunities", label: "Drives & Campaigns", icon: <Calendar className="w-4 h-4" /> },
+              { tab: "requests", label: "Requests & Invites", icon: <Bell className="w-4 h-4" /> },
+              { tab: "messages", label: "Message Channels", icon: <MessageSquare className="w-4 h-4" /> },
+              { tab: "analytics", label: "Team Analytics", icon: <BarChart3 className="w-4 h-4" /> }
+            ].map(t => (
+              <button
+                key={t.tab}
+                onClick={() => setActiveTab(t.tab as any)}
+                className={`w-full flex items-center rounded-xl p-2.5 text-sm font-medium transition-all group relative ${
+                  activeTab === t.tab 
+                    ? "bg-[#023E8A] text-white shadow-sm" 
+                    : "text-slate-600 hover:bg-slate-50 hover:text-[#023E8A]"
+                }`}
+                title={!isSidebarExpanded ? t.label : undefined}
+              >
+                <span className={`shrink-0 flex items-center justify-center ${activeTab === t.tab ? "text-white" : "text-slate-400 group-hover:text-[#023E8A]"}`}>
+                  {t.icon}
+                </span>
+                {isSidebarExpanded && (
+                  <span className="ml-3 font-medium transition-opacity duration-300 truncate">{t.label}</span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="border-t border-slate-100 pt-4 flex justify-center">
+            {isSidebarExpanded ? (
+              <span className="text-[10px] font-mono text-slate-400">Coordinator Active</span>
+            ) : (
+              <span className="text-[10px] font-mono text-slate-400">Active</span>
+            )}
           </div>
         </aside>
 
-        {/* Content Panel */}
+        {/* Content body panel */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0">
           
           {errorState ? (
@@ -962,638 +1011,458 @@ export default function StaffDashboard() {
                 {/* --- TAB: OVERVIEW --- */}
                 {activeTab === "overview" && (
                   <div className="flex flex-col gap-8">
-                    
-                    {/* Quick statistics strip */}
-                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6">
-                      <Card title="Registry Pool" subtitle="Assigned volunteers" className="text-center" glass="light">
-                        <span className="font-serif font-black text-3xl text-[#023E8A]">{stats.totalVolunteers}</span>
+                    {/* Stat Strip */}
+                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                      <Card title="Total Assigned" subtitle="Registered units" className="text-center shadow-xs">
+                        <span className="font-serif font-black text-3xl text-[#1B4965]">{stats.totalVolunteers}</span>
                       </Card>
-                      <Card title="Active Field Staff" subtitle="Logged in this week" className="text-center" glass="light">
-                        <span className="font-serif font-black text-3xl text-[#023E8A]">{stats.activeThisWeek}</span>
+                      <Card title="Active Status" subtitle="In baseline" className="text-center shadow-xs">
+                        <span className="font-serif font-black text-3xl text-[#1B4965]">{stats.activeThisWeek}</span>
                       </Card>
-                      <Card title="Total Lab Hours" subtitle="Credits approved" className="text-center" glass="light">
-                        <span className="font-serif font-black text-3xl text-[#023E8A]">{stats.hoursLogged}h</span>
+                      <Card title="Conservation Hours" subtitle="Approved logs" className="text-center shadow-xs">
+                        <span className="font-serif font-black text-3xl text-[#1B4965]">{stats.hoursLogged}h</span>
                       </Card>
-                      <Card title="Open Tasks" subtitle="Awaiting completion" className="text-center" glass="light">
-                        <span className="font-serif font-black text-3xl text-[#023E8A]">{stats.openTasks}</span>
+                      <Card title="Open Tasks" subtitle="Due assignments" className="text-center shadow-xs">
+                        <span className="font-serif font-black text-3xl text-[#1B4965]">{stats.openTasks}</span>
                       </Card>
-                      <Card title="Direct Unread" subtitle="Direct citizen logs" className="text-center" glass="light">
-                        <span className="font-serif font-black text-3xl text-[#023E8A]">{stats.unreadMessages}</span>
+                      <Card title="In-App Unread" subtitle="Direct alerts" className="text-center shadow-xs">
+                        <span className="font-serif font-black text-3xl text-rose-600">{stats.unreadMessages}</span>
                       </Card>
                     </div>
 
-                    {/* Action grid */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                      
-                      {/* Quick actions box */}
-                      <Card title="Regional Operations Quick Launch" subtitle="Operational shortcuts for daily coordinator tasks" glass="light">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <button
-                            onClick={() => setIsAddVolOpen(true)}
-                            className="p-4 rounded-xl border border-white/50 bg-white/40 hover:bg-white/70 hover:border-white/80 transition text-left flex items-start gap-4 cursor-pointer group min-h-[44px]"
-                          >
-                            <PlusCircle className="w-8 h-8 text-[#0096C7] shrink-0" />
-                            <div>
-                              <h4 className="font-bold text-xs text-[#023E8A] group-hover:text-[#0096C7]">Add Volunteer</h4>
-                              <p className="text-[10px] text-slate-600 mt-1 leading-relaxed">Launch intake interview form & issue security profile credentials.</p>
-                            </div>
-                          </button>
-
-                          <button
-                            onClick={() => setIsAddTaskOpen(true)}
-                            className="p-4 rounded-xl border border-white/50 bg-white/40 hover:bg-white/70 hover:border-white/80 transition text-left flex items-start gap-4 cursor-pointer group min-h-[44px]"
-                          >
-                            <CheckSquare className="w-8 h-8 text-[#0096C7] shrink-0" />
-                            <div>
-                              <h4 className="font-bold text-xs text-[#023E8A] group-hover:text-[#0096C7]">New Task</h4>
-                              <p className="text-[10px] text-slate-600 mt-1 leading-relaxed">Assign individual bio-indicator testing or cleanup safety checks.</p>
-                            </div>
-                          </button>
-
-                          <button
-                            onClick={() => setIsBulkTaskOpen(true)}
-                            className="p-4 rounded-xl border border-white/50 bg-white/40 hover:bg-white/70 hover:border-white/80 transition text-left flex items-start gap-4 cursor-pointer group min-h-[44px]"
-                          >
-                            <ListFilter className="w-8 h-8 text-[#0096C7] shrink-0" />
-                            <div>
-                              <h4 className="font-bold text-xs text-[#023E8A] group-hover:text-[#0096C7]">Bulk Site Task</h4>
-                              <p className="text-[10px] text-slate-600 mt-1 leading-relaxed">Broadcast tasks to all active volunteers matching a site preference.</p>
-                            </div>
-                          </button>
-
-                          <button
-                            onClick={() => setIsBroadcastOpen(true)}
-                            className="p-4 rounded-xl border border-white/50 bg-white/40 hover:bg-white/70 hover:border-white/80 transition text-left flex items-start gap-4 cursor-pointer group min-h-[44px]"
-                          >
-                            <Volume2 className="w-8 h-8 text-[#0096C7] shrink-0" />
-                            <div>
-                              <h4 className="font-bold text-xs text-[#023E8A] group-hover:text-[#0096C7]">Broadcast Msg</h4>
-                              <p className="text-[10px] text-slate-600 mt-1 leading-relaxed">Broadcast messages instantly to site-specific groups or interest tags.</p>
-                            </div>
-                          </button>
+                    {/* Team metrics & overview table */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                      <Card title="My Active Field Team" subtitle="Review volunteer profile logs at a glance." className="lg:col-span-2 shadow-xs">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
+                                <th className="p-3">Volunteer</th>
+                                <th className="p-3">Code</th>
+                                <th className="p-3">Interests</th>
+                                <th className="p-3 text-center">Hours</th>
+                                <th className="p-3">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {volunteers.slice(0, 5).map(v => (
+                                <tr key={v.profile_id} className="hover:bg-slate-50/50">
+                                  <td className="p-3 font-bold text-slate-800">{v.profile?.full_name || "Pending Name"}</td>
+                                  <td className="p-3 font-mono text-sky-700">{v.volunteer_code}</td>
+                                  <td className="p-3 truncate max-w-[150px]">{v.interests?.join(", ") || "General Support"}</td>
+                                  <td className="p-3 text-center font-bold">{v.hours_logged || 0}h</td>
+                                  <td className="p-3"><Badge status={v.status as any} /></td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {volunteers.length === 0 && (
+                            <div className="p-8 text-center text-slate-400 italic">No volunteers assigned yet.</div>
+                          )}
                         </div>
                       </Card>
 
-                      {/* Recent activity summary info */}
-                      <Card title="Active Field Roster Summary" subtitle="Roster outline for quick operational monitoring" glass="light">
-                        {volunteers.length === 0 ? (
-                          <div className="text-center p-6 text-slate-500">
-                            No volunteers assigned yet. Use "Add Volunteer" to register.
-                          </div>
-                        ) : (
-                          <div className="flex flex-col gap-3">
-                            {volunteers.slice(0, 4).map((vol) => (
-                              <div key={vol.profile_id} className="p-3.5 bg-white/40 border border-white/50 rounded-xl flex justify-between items-center text-xs">
-                                <div className="flex items-center gap-3">
-                                  <Avatar name={vol.profile.full_name} size="sm" />
-                                  <div>
-                                    <span className="font-bold text-[#023E8A] block">{vol.profile.full_name}</span>
-                                    <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">{vol.site_name || "General"}</span>
-                                  </div>
-                                </div>
-                                <div className="text-right">
-                                  <span className="font-bold block text-[#1B4965]">{vol.hours_logged}h</span>
-                                  <Badge status={vol.status} className="text-[9px]" />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                      <Card title="Quick Direct Actions" subtitle="Initiate new operational pipelines." className="lg:col-span-1 shadow-xs">
+                        <div className="flex flex-col gap-3">
+                          <Button onClick={() => setIsAddVolOpen(true)} className="w-full justify-start min-h-[44px]">
+                            <Plus className="w-4 h-4" /> Register New Volunteer
+                          </Button>
+                          <Button onClick={() => setIsAddTaskOpen(true)} variant="secondary" className="w-full justify-start min-h-[44px]">
+                            <ClipboardCheck className="w-4 h-4" /> Assign Specialized Task
+                          </Button>
+                          <Button onClick={() => setIsBulkTaskOpen(true)} variant="secondary" className="w-full justify-start min-h-[44px]">
+                            <FolderDot className="w-4 h-4" /> Bulk Site Assign Tasks
+                          </Button>
+                        </div>
                       </Card>
-
                     </div>
                   </div>
                 )}
 
-                {/* --- TAB: MY VOLUNTEERS --- */}
+                {/* --- TAB: MY VOLUNTEERS SET --- */}
                 {activeTab === "volunteers" && (
                   <div className="flex flex-col gap-6">
-                    
-                    <div className="flex flex-col sm:flex-row gap-4 justify-between items-center border-b border-slate-100 pb-4">
-                      <div className="w-full sm:max-w-xs relative">
-                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
-                        <input
-                          type="text"
-                          placeholder="Search volunteers code or site..."
-                          value={volSearch}
-                          onChange={(e) => setVolSearch(e.target.value)}
-                          className="w-full pl-9 pr-4 py-3 text-xs border border-slate-200 bg-white rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan min-h-[44px]"
-                        />
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h2 className="font-serif font-bold text-xl text-[#023E8A]">Active Team Volunteers</h2>
+                        <p className="text-xs text-slate-400 mt-0.5 font-sans">Manage detailed baseline intake parameters, contact info, and contributions.</p>
                       </div>
-
-                      <Button onClick={() => setIsAddVolOpen(true)} className="w-full sm:w-auto text-xs py-3 px-4 min-h-[44px]">
-                        <Plus className="w-4 h-4" />
-                        Register New Volunteer
+                      <Button onClick={() => setIsAddVolOpen(true)} className="min-h-[44px]">
+                        <Plus className="w-4 h-4" /> Register Volunteer
                       </Button>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                      
-                      {/* Left list roster */}
-                      <Card title="Assigned Volunteers Roster" subtitle={`Matching: ${filteredVolunteers.length}`} className="lg:col-span-2">
-                        {filteredVolunteers.length === 0 ? (
-                          <EmptyState 
-                            title="No matching volunteers" 
-                            description="No active or pending volunteers found matching your query." 
-                            icon={<Users className="w-10 h-10 text-cyan" />}
-                          />
-                        ) : (
-                          <>
-                            {/* Desktop Table */}
-                            <div className="hidden md:block overflow-x-auto">
-                              <table className="w-full text-left text-xs">
-                                <thead>
-                                  <tr className="border-b border-slate-100 text-slate-400 uppercase font-mono tracking-wider">
-                                    <th className="py-2.5">Name</th>
-                                    <th className="py-2.5">Code</th>
-                                    <th className="py-2.5">Site Preference</th>
-                                    <th className="py-2.5">Hours</th>
-                                    <th className="py-2.5">Status</th>
-                                    <th className="py-2.5 text-right">Action</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {filteredVolunteers.map((vol) => (
-                                    <tr 
-                                      key={vol.profile_id} 
-                                      onClick={() => setSelectedVolId(vol.profile_id)}
-                                      className={`border-b border-slate-50 hover:bg-slate-50/50 cursor-pointer transition ${selectedVolId === vol.profile_id ? "bg-slate-50" : ""}`}
-                                    >
-                                      <td className="py-3 font-semibold text-deep flex items-center gap-2">
-                                        <Avatar name={vol.profile.full_name} size="sm" />
-                                        {vol.profile.full_name}
-                                      </td>
-                                      <td className="py-3 font-mono text-[10px] text-slate-400 font-bold">{vol.volunteer_code}</td>
-                                      <td className="py-3 text-slate-500 font-medium">{vol.site_name || "General Support"}</td>
-                                      <td className="py-3 font-bold text-slate-700">{vol.hours_logged}h</td>
-                                      <td className="py-3"><Badge status={vol.status} className="text-[10px]" /></td>
-                                      <td className="py-3 text-right">
-                                        <Button variant="ghost" onClick={() => setSelectedVolId(vol.profile_id)} className="text-[10px] p-2 h-auto min-h-[32px]">
-                                          View
-                                        </Button>
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                    <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
+                      <Input
+                        placeholder="Search assigned volunteers by name or volunteer code..."
+                        value={volSearch}
+                        onChange={(e) => setVolSearch(e.target.value)}
+                        className="py-2.5"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {filteredVolunteers.map(v => {
+                        const name = v.profile?.full_name || "Pending Name";
+                        const email = v.profile?.email || "";
+                        const phone = v.profile?.phone || "";
+                        return (
+                          <div key={v.profile_id} className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between">
+                            <div>
+                              <div className="flex justify-between items-start">
+                                <div className="flex gap-3">
+                                  <Avatar name={name} size="md" />
+                                  <div>
+                                    <h3 className="font-bold text-sm text-[#023E8A] truncate">{name}</h3>
+                                    <p className="text-[10px] font-mono text-[#0096C7] font-bold tracking-wider mt-0.5">{v.volunteer_code}</p>
+                                  </div>
+                                </div>
+                                <Badge status={v.status as any} />
+                              </div>
+
+                              <div className="mt-4 border-t border-slate-50 pt-3 flex flex-col gap-1.5 text-xs text-slate-500">
+                                <div className="flex items-center gap-2">
+                                  <Mail className="w-3.5 h-3.5 text-slate-400" />
+                                  <span className="truncate">{email}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Phone className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>{phone || "No phone listed"}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                                  <span className="truncate">Pref: {v.site_name || "General Support"}</span>
+                                </div>
+                              </div>
                             </div>
 
-                            {/* Mobile Stacked Cards (<768px) */}
-                            <div className="md:hidden flex flex-col gap-4">
-                              {filteredVolunteers.map((vol) => (
-                                <div 
-                                  key={vol.profile_id}
-                                  onClick={() => setSelectedVolId(vol.profile_id)}
-                                  className={`p-4 rounded-xl border text-xs transition ${
-                                    selectedVolId === vol.profile_id ? "border-cyan bg-sky-50/20" : "border-slate-100 bg-white"
-                                  }`}
-                                >
-                                  <div className="flex justify-between items-start">
-                                    <div className="flex items-center gap-2.5">
-                                      <Avatar name={vol.profile.full_name} size="sm" />
-                                      <div>
-                                        <span className="font-bold text-deep block">{vol.profile.full_name}</span>
-                                        <span className="text-[10px] text-slate-400 font-mono">{vol.volunteer_code}</span>
-                                      </div>
-                                    </div>
-                                    <Badge status={vol.status} />
-                                  </div>
+                            <div className="mt-4 pt-3 border-t border-slate-50 flex justify-between items-center text-xs">
+                              <span className="text-slate-400">Logged Contribution:</span>
+                              <span className="font-bold text-emerald-600">{v.hours_logged || 0}h logged</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {filteredVolunteers.length === 0 && (
+                        <div className="col-span-full p-12 text-center text-slate-400 italic">No matching volunteer records.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
-                                  <div className="mt-3 grid grid-cols-2 text-[10px] text-slate-500 border-t border-slate-50 pt-2">
-                                    <div>SITE: <span className="font-bold text-slate-700">{vol.site_name || "General"}</span></div>
-                                    <div className="text-right">LOGGED: <span className="font-bold text-slate-700">{vol.hours_logged}h</span></div>
+                {/* --- TAB: TASKS --- */}
+                {activeTab === "tasks" && (
+                  <div className="flex flex-col gap-6">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h2 className="font-serif font-bold text-xl text-[#023E8A]">Active Task Assignments</h2>
+                        <p className="text-xs text-slate-400 mt-0.5">Publish custom single checklists or bulk site calibrated assignments.</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button onClick={() => setIsAddTaskOpen(true)} className="min-h-[44px]">
+                          <Plus className="w-4 h-4" /> Single Task
+                        </Button>
+                        <Button onClick={() => setIsBulkTaskOpen(true)} variant="secondary" className="min-h-[44px]">
+                          <FolderDot className="w-4 h-4" /> Bulk Site Assignment
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {["todo", "in_progress", "done"].map(col => {
+                        const colTasks = tasks.filter(t => t.status === col);
+                        return (
+                          <div key={col} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col gap-4">
+                            <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                {{ todo: "To Do", in_progress: "In Progress", done: "Done" }[col]}
+                              </span>
+                              <span className="bg-slate-200 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{colTasks.length}</span>
+                            </div>
+
+                            <div className="flex flex-col gap-3 max-h-[500px] overflow-y-auto pr-1">
+                              {colTasks.map(t => (
+                                <div key={t.id} className="bg-white border border-slate-100 rounded-xl p-4 shadow-xs flex flex-col gap-2.5">
+                                  <div className="flex justify-between items-start gap-2">
+                                    <h4 className="font-serif font-bold text-sm text-[#1B4965]">{t.title}</h4>
+                                    <Badge status={t.priority} />
+                                  </div>
+                                  <p className="text-slate-500 text-[11px] leading-relaxed line-clamp-2">{t.description}</p>
+                                  <div className="flex justify-between items-center text-[10px] border-t border-slate-50 pt-2.5">
+                                    <span className="text-slate-400 font-mono">Due: {t.due_date}</span>
+                                    <span className="font-semibold text-slate-700 truncate max-w-[120px]">{t.volunteer_name}</span>
                                   </div>
                                 </div>
                               ))}
+                              {colTasks.length === 0 && (
+                                <div className="p-8 text-center text-slate-400 italic text-[11px]">No active assignments in this stage.</div>
+                              )}
                             </div>
-                          </>
-                        )}
-                      </Card>
-
-                      {/* Right desk detailed pane */}
-                      <div className="lg:col-span-1">
-                        {selectedVolDetail ? (
-                          <Card title="Volunteer Detail Desk" subtitle={selectedVolDetail.profile.full_name}>
-                            <div className="flex flex-col gap-5 text-xs text-slate-600">
-                              <div className="flex flex-col items-center border-b border-slate-100 pb-4">
-                                <Avatar name={selectedVolDetail.profile.full_name} size="lg" className="mb-2" />
-                                <span className="font-bold text-deep text-sm block">{selectedVolDetail.profile.full_name}</span>
-                                <span className="font-mono text-[10px] text-cyan font-bold">{selectedVolDetail.volunteer_code}</span>
-                                <Badge status={selectedVolDetail.status} className="text-[9px] mt-2" />
-                              </div>
-
-                              <div>
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Contact Parameters</span>
-                                <p className="flex items-center gap-1.5 font-medium"><Mail className="w-3.5 h-3.5 text-slate-400" /> {selectedVolDetail.profile.email}</p>
-                                <p className="flex items-center gap-1.5 font-medium mt-1.5"><Phone className="w-3.5 h-3.5 text-slate-400" /> {selectedVolDetail.profile.phone}</p>
-                              </div>
-
-                              <div>
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Site Preference & Schedule</span>
-                                <p className="font-semibold text-deep leading-relaxed">{selectedVolDetail.site_name || "General"}</p>
-                                <p className="text-slate-500 mt-0.5">{selectedVolDetail.availability}</p>
-                              </div>
-
-                              <div>
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Emergency Contacts</span>
-                                <p className="font-semibold text-deep leading-relaxed">{selectedVolDetail.emergency_contact || "Not provided"}</p>
-                              </div>
-
-                              <div className="border-t border-slate-100 pt-4 flex gap-3">
-                                <Button 
-                                  variant="danger" 
-                                  onClick={() => { setVolToDeactivate(selectedVolDetail.profile_id); setIsDeactivateConfirmOpen(true); }} 
-                                  className="flex-1 text-[10px] py-3 px-4 min-h-[44px]"
-                                >
-                                  Deactivate Profile
-                                </Button>
-                                <Button 
-                                  variant="secondary" 
-                                  onClick={() => { setActiveThreadVolId(selectedVolDetail.profile_id); setActiveTab("messages"); }} 
-                                  className="flex-1 text-[10px] py-3 px-4 min-h-[44px]"
-                                >
-                                  Direct message
-                                </Button>
-                              </div>
-                            </div>
-                          </Card>
-                        ) : (
-                          <div className="h-full rounded-xl bg-white border border-dashed border-slate-200 p-8 flex flex-col items-center justify-center text-center">
-                            <Users className="w-10 h-10 text-slate-300 mb-2 animate-bounce" />
-                            <h4 className="font-serif font-bold text-deep text-sm">Select Volunteer</h4>
-                            <p className="text-xs text-slate-400 max-w-xs mt-1">Click on any volunteer in the master list to review detailed profiles, safety logs, and direct message threads.</p>
                           </div>
-                        )}
-                      </div>
-
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
-                {/* --- TAB: TASK BOARD --- */}
-                {activeTab === "tasks" && (
-                  <div className="flex flex-col gap-6">
-                    <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center border-b border-slate-100 pb-4">
-                      <div>
-                        <h2 className="font-serif font-black text-xl text-deep">Task Kanban Board</h2>
-                        <p className="text-slate-400 text-xs mt-0.5">Track and manage bio-indicator tasks assigned to your volunteer unit.</p>
-                      </div>
-
-                      <div className="flex gap-2 w-full sm:w-auto">
-                        <Button variant="secondary" onClick={() => setIsBulkTaskOpen(true)} className="flex-1 sm:flex-initial text-xs py-3 px-4 min-h-[44px]">
-                          <ListFilter className="w-4 h-4" />
-                          Bulk Site Assign
-                        </Button>
-                        <Button onClick={() => setIsAddTaskOpen(true)} className="flex-1 sm:flex-initial text-xs py-3 px-4 min-h-[44px]">
-                          <Plus className="w-4 h-4" />
-                          Assign Individual Task
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* DESKTOP COLUMN KANBAN VIEW */}
-                    <div className="hidden md:grid grid-cols-1 lg:grid-cols-3 gap-6">
-                      
-                      {/* Column: To Do */}
-                      <div className="flex flex-col gap-4">
-                        <div className="p-3 bg-white/50 backdrop-blur-md rounded-xl border border-white/60 flex justify-between items-center shadow-xs text-[#1B4965]">
-                          <span className="text-xs font-bold uppercase tracking-wide">To Do</span>
-                          <span className="px-2.5 py-0.5 bg-white/60 rounded text-[10px] font-bold text-slate-700">
-                            {tasks.filter(t => t.status === "todo").length}
-                          </span>
-                        </div>
-
-                        <div className="flex flex-col gap-3 min-h-[50vh] bg-white/30 backdrop-blur-md p-3 rounded-xl border border-white/40 shadow-inner">
-                          {tasks.filter(t => t.status === "todo").length === 0 ? (
-                            <p className="text-xs text-slate-600 italic text-center py-8">No tasks here</p>
-                          ) : (
-                            tasks.filter(t => t.status === "todo").map((task) => (
-                              <div key={task.id} className="bg-white/80 p-4 rounded-xl border border-white/50 shadow-sm hover:bg-white/95 transition relative group text-[#1B4965]">
-                                <div className="flex justify-between items-start gap-2">
-                                  <span className="text-[10px] font-mono text-[#0096C7] font-bold">{task.volunteer_name}</span>
-                                  <Badge status={task.priority} className="text-[9px] px-1.5 py-0" />
-                                </div>
-                                <h4 className="font-bold text-xs text-[#023E8A] mt-2 leading-snug">{task.title}</h4>
-                                <p className="text-[10px] text-slate-600 mt-1 leading-relaxed">{task.description}</p>
-                                
-                                <div className="border-t border-white/40 mt-3 pt-2.5 flex justify-between items-center text-[9px] text-slate-500 font-mono">
-                                  <span>DUE: {new Date(task.due_date).toLocaleDateString()}</span>
-                                  <div className="flex gap-1.5">
-                                    <button onClick={() => { setTaskToDelete(task.id); setIsDeleteTaskConfirmOpen(true); }} className="text-coral hover:text-red-700 font-bold min-h-[32px] px-1.5 cursor-pointer">Delete</button>
-                                    <button onClick={() => handleMoveTaskStatus(task.id, "in_progress")} className="text-[#023E8A] hover:text-[#1B4965] font-bold min-h-[32px] px-1.5 cursor-pointer">Start &rarr;</button>
-                                  </div>
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Column: In Progress */}
-                      <div className="flex flex-col gap-4">
-                        <div className="p-3 bg-white/50 backdrop-blur-md rounded-xl border border-white/60 flex justify-between items-center shadow-xs text-[#023E8A]">
-                          <span className="text-xs font-bold uppercase tracking-wide">In Progress</span>
-                          <span className="px-2.5 py-0.5 bg-white/60 rounded text-[10px] font-bold text-slate-700">
-                            {tasks.filter(t => t.status === "in_progress").length}
-                          </span>
-                        </div>
-
-                        <div className="flex flex-col gap-3 min-h-[50vh] bg-white/30 backdrop-blur-md p-3 rounded-xl border border-white/40 shadow-inner">
-                          {tasks.filter(t => t.status === "in_progress").length === 0 ? (
-                            <p className="text-xs text-slate-600 italic text-center py-8">No active tasks</p>
-                          ) : (
-                            tasks.filter(t => t.status === "in_progress").map((task) => (
-                              <div key={task.id} className="bg-white/80 p-4 rounded-xl border border-white/50 shadow-sm hover:bg-white/95 transition relative text-[#1B4965]">
-                                <div className="flex justify-between items-start gap-2">
-                                  <span className="text-[10px] font-mono text-[#0096C7] font-bold">{task.volunteer_name}</span>
-                                  <Badge status={task.priority} className="text-[9px] px-1.5 py-0" />
-                                </div>
-                                <h4 className="font-bold text-xs text-[#023E8A] mt-2 leading-snug">{task.title}</h4>
-                                <p className="text-[10px] text-slate-600 mt-1 leading-relaxed">{task.description}</p>
-                                
-                                <div className="border-t border-white/40 mt-3 pt-2.5 flex justify-between items-center text-[9px] text-slate-500 font-mono">
-                                  <span>DUE: {new Date(task.due_date).toLocaleDateString()}</span>
-                                  <div className="flex gap-1.5">
-                                    <button onClick={() => handleMoveTaskStatus(task.id, "todo")} className="text-slate-500 hover:text-slate-700 font-bold min-h-[32px] px-1.5 cursor-pointer">&larr; Back</button>
-                                    <button onClick={() => handleMoveTaskStatus(task.id, "done")} className="text-emerald-700 hover:text-emerald-800 font-bold min-h-[32px] px-1.5 cursor-pointer">Finish &rarr;</button>
-                                  </div>
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Column: Done */}
-                      <div className="flex flex-col gap-4">
-                        <div className="p-3 bg-white/50 backdrop-blur-md rounded-xl border border-white/60 flex justify-between items-center shadow-xs text-[#1B4965]">
-                          <span className="text-xs font-bold uppercase tracking-wide">Done</span>
-                          <span className="px-2.5 py-0.5 bg-white/60 rounded text-[10px] font-bold text-slate-700">
-                            {tasks.filter(t => t.status === "done").length}
-                          </span>
-                        </div>
-
-                        <div className="flex flex-col gap-3 min-h-[50vh] bg-white/30 backdrop-blur-md p-3 rounded-xl border border-white/40 shadow-inner">
-                          {tasks.filter(t => t.status === "done").length === 0 ? (
-                            <p className="text-xs text-slate-600 italic text-center py-8">No completed tasks yet</p>
-                          ) : (
-                            tasks.filter(t => t.status === "done").map((task) => (
-                              <div key={task.id} className="bg-white/60 p-4 rounded-xl border border-white/50 shadow-sm hover:bg-white/95 transition relative opacity-75 text-slate-500">
-                                <div className="flex justify-between items-start gap-2">
-                                  <span className="text-[10px] font-mono text-[#0096C7] font-bold">{task.volunteer_name}</span>
-                                  <Badge status="done" className="text-[9px] px-1.5 py-0" />
-                                </div>
-                                <h4 className="font-bold text-xs text-slate-400 mt-2 leading-snug line-through">{task.title}</h4>
-                                <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">{task.description}</p>
-                                
-                                <div className="border-t border-white/40 mt-3 pt-2.5 flex justify-between items-center text-[9px] text-slate-400 font-mono">
-                                  <span>COMPLETED</span>
-                                  <button onClick={() => handleMoveTaskStatus(task.id, "in_progress")} className="text-[#0096C7] hover:text-[#023E8A] font-bold min-h-[32px] px-1.5 cursor-pointer">&larr; Re-open</button>
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-
-                    </div>
-
-                    {/* MOBILE COLLAPSED KANBAN SINGLE STACK VIEW (<768px) */}
-                    <div className="md:hidden flex flex-col gap-4">
-                      {tasks.length === 0 ? (
-                        <EmptyState
-                          title="No tasks assigned yet"
-                          description="Get started by creating a new bio-indicator task or safety check."
-                          icon={<CheckSquare className="w-10 h-10 text-cyan" />}
-                        />
-                      ) : (
-                        tasks.map((task) => (
-                          <div key={task.id} className="p-4 bg-white border border-slate-100 rounded-xl text-xs flex flex-col gap-2 shadow-xs">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <h4 className="font-bold text-deep leading-tight text-sm">{task.title}</h4>
-                                <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">Assignee: {task.volunteer_name}</span>
-                              </div>
-                              <Badge status={task.priority} />
-                            </div>
-
-                            <p className="text-slate-500 text-[11px] leading-relaxed mt-1">{task.description}</p>
-
-                            <div className="border-t border-slate-50 pt-3 mt-1 flex justify-between items-center">
-                              <span className="text-[10px] font-mono text-slate-400">STATUS: <span className="font-bold text-slate-600 uppercase">{task.status.replace("_", " ")}</span></span>
-                              <Button 
-                                variant="secondary" 
-                                onClick={() => handleCycleTaskStatus(task)} 
-                                className="text-[10px] py-1.5 px-3 min-h-[44px] inline-flex items-center gap-1"
-                              >
-                                Move status &rarr;
-                              </Button>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-
-                  </div>
-                )}
-
-                {/* --- TAB: CAMPAIGNS --- */}
+                {/* --- TAB: OPPORTUNITIES --- */}
                 {activeTab === "opportunities" && (
                   <div className="flex flex-col gap-6">
-                    <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center border-b border-slate-100 pb-4">
+                    <div className="flex justify-between items-center">
                       <div>
-                        <h2 className="font-serif font-black text-xl text-deep">Coastal Restoration Campaigns</h2>
-                        <p className="text-slate-400 text-xs mt-0.5">Create open opportunities, log completions, and assign field hours.</p>
+                        <h2 className="font-serif font-bold text-xl text-[#023E8A]">Coastal restoration drives & Campaigns</h2>
+                        <p className="text-xs text-slate-400 mt-0.5">Publish new baseline campaigns, finalize metrics, and credit volunteer hours.</p>
                       </div>
-
-                      <Button onClick={() => setIsAddOppOpen(true)} className="w-full sm:w-auto text-xs py-3 px-4 min-h-[44px]">
-                        <Plus className="w-4 h-4" />
-                        Create Opportunity Drive
+                      <Button onClick={() => setIsAddOppOpen(true)} className="min-h-[44px]">
+                        <Plus className="w-4 h-4" /> Create Campaign Drive
                       </Button>
                     </div>
 
-                    {opportunities.length === 0 ? (
-                      <EmptyState
-                        title="No active campaigns"
-                        description="Ocean School India has no active drives listed. Create one above!"
-                        icon={<Calendar className="w-10 h-10 text-cyan" />}
-                      />
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {opportunities.map((opp) => {
-                          const isCompleted = opp.status === "completed";
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {opportunities.map(opp => (
+                        <div key={opp.id} className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between">
+                          <div>
+                            <div className="flex justify-between items-start">
+                              <span className="text-[10px] font-bold text-cyan uppercase tracking-wider">{opp.type}</span>
+                              <Badge status={opp.status} />
+                            </div>
+                            <h3 className="font-serif font-bold text-base text-[#1B4965] mt-2 leading-snug">{opp.title}</h3>
+                            <p className="text-slate-500 text-xs mt-2 leading-relaxed line-clamp-3">{opp.description}</p>
+                          </div>
+
+                          <div className="mt-5 border-t border-slate-50 pt-4 flex flex-col gap-2">
+                            <div className="flex items-center gap-2 text-xs text-slate-600">
+                              <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                              <span className="truncate">{opp.site?.name || "Multiple Sites"}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-slate-600">
+                              <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                              <span>{opp.date}</span>
+                            </div>
+                            <div className="flex justify-between items-center mt-2 pt-2 border-t border-slate-50 text-xs">
+                              <span className="text-slate-400">Registrations Count:</span>
+                              <span className="font-bold text-[#0096C7]">{opp.signup_count} / {opp.capacity}</span>
+                            </div>
+                          </div>
+
+                          {opp.status === "open" && (
+                            <div className="mt-4 pt-3 border-t border-slate-50 flex justify-end">
+                              <Button onClick={() => handleOpenCompleteCampaign(opp)} className="text-xs py-2 px-3.5 min-h-[38px]">
+                                Finalize & Credit Hours
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* --- TAB: REQUESTS & INVITES --- */}
+                {activeTab === "requests" && (
+                  <div className="flex flex-col gap-6">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h2 className="font-serif font-bold text-xl text-[#023E8A]">Requests & Invites Hub</h2>
+                        <p className="text-xs text-slate-400 mt-0.5">Invite new restoration participants or track pending join applications.</p>
+                      </div>
+                      <Button onClick={() => setIsSendInviteOpen(true)} className="min-h-[44px]">
+                        <Send className="w-4 h-4" /> Send Join Invite
+                      </Button>
+                    </div>
+
+                    <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
+                      <div className="p-4 bg-slate-50 border-b border-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Dispatched Invites & Applications Logs
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {joinRequests.map(req => {
+                          const isIncoming = req.to_id === user!.id;
+                          const oppositeName = isIncoming 
+                            ? (req.from_profile?.full_name || "Applicant") 
+                            : (req.to_profile?.full_name || "Recipient");
+                          const oppositeEmail = isIncoming ? req.from_profile?.email : req.to_profile?.email;
+
                           return (
-                            <div key={opp.id} className={`bg-white/45 backdrop-blur-md rounded-xl border border-white/50 overflow-hidden shadow-sm hover:shadow-md transition-all text-[#1B4965] ${isCompleted ? "opacity-75" : ""}`}>
-                              <div className="p-5">
-                                <div className="flex justify-between items-start">
-                                  <Badge status={opp.status} />
-                                  <span className="text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wide">{opp.commitment_label}</span>
-                                </div>
-
-                                <h3 className="font-serif font-bold text-base text-[#023E8A] mt-3">{opp.title}</h3>
-                                <p className="text-xs text-slate-600 mt-2 leading-relaxed">{opp.description}</p>
-
-                                <div className="border-t border-white/40 mt-4 pt-3 flex flex-wrap gap-x-4 gap-y-2 text-[10px] text-slate-500 font-mono">
-                                  <div>SITE: <span className="font-bold text-slate-700">{opp.site?.name || "Multiple"}</span></div>
-                                  <div>DATE: <span className="font-bold text-slate-700">{new Date(opp.date).toLocaleDateString()}</span></div>
-                                  <div>CAPACITY: <span className="font-bold text-slate-700">{opp.signup_count}/{opp.capacity}</span></div>
+                            <div key={req.id} className="p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                              <div className="flex gap-3">
+                                <Avatar name={oppositeName} size="md" />
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h3 className="font-bold text-sm text-[#1B4965]">{oppositeName}</h3>
+                                    <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                                      isIncoming ? "bg-cyan/10 text-cyan border border-cyan/20" : "bg-slate-100 text-slate-600 border border-slate-200"
+                                    }`}>
+                                      {isIncoming ? "Incoming" : "Invite Dispatched"}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-slate-400 mt-0.5">{oppositeEmail}</p>
+                                  <p className="text-xs text-slate-500 mt-2 font-mono bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                    {req.message}
+                                  </p>
                                 </div>
                               </div>
 
-                              <div className="bg-white/30 px-5 py-3 border-t border-white/40 flex justify-between items-center text-xs">
-                                <span className="text-[10px] font-mono font-bold text-slate-500">SIGNUPS: {opp.signup_count}</span>
-                                {!isCompleted ? (
-                                  <Button variant="secondary" onClick={() => handleOpenCompleteCampaign(opp)} className="text-[11px] py-3 px-4 min-h-[44px]">
-                                    Complete & Log Hours
-                                  </Button>
-                                ) : (
-                                  <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1.5 font-bold">
-                                    <CheckCircle2 className="w-4 h-4" />
-                                    Campaign Logged
-                                  </span>
-                                )}
+                              <div className="flex flex-col sm:items-end gap-2 shrink-0">
+                                <Badge status={req.status as any} />
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  {new Date(req.created_at).toLocaleDateString()}
+                                </span>
                               </div>
                             </div>
                           );
                         })}
+                        {joinRequests.length === 0 && (
+                          <div className="p-12 text-center text-slate-400 italic text-xs">No active promotion requests or invites log.</div>
+                        )}
                       </div>
-                    )}
+                    </div>
                   </div>
                 )}
 
-                {/* --- TAB: STAFF INBOX --- */}
+                {/* --- TAB: MESSAGES --- */}
                 {activeTab === "messages" && (
-                  <div className="flex flex-col gap-6">
-                    <div className="flex justify-between items-center border-b border-slate-100 pb-4">
-                      <div>
-                        <h2 className="font-serif font-black text-xl text-deep">Staff Messenger Inbox</h2>
-                        <p className="text-slate-400 text-xs mt-0.5">Secure 1:1 threads with assigned volunteers or broadcast parameters.</p>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-12rem)] min-h-[500px]">
+                    
+                    {/* Chat Sidebar: Volunteers List */}
+                    <div className="lg:col-span-1 bg-white border border-slate-100 rounded-2xl flex flex-col overflow-hidden shadow-xs">
+                      <div className="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center shrink-0">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">My Team Channels</span>
+                        <Button onClick={() => setIsBroadcastOpen(true)} className="text-xs py-1.5 px-3 min-h-[34px]">
+                          <Volume2 className="w-3.5 h-3.5" /> Broadcast
+                        </Button>
                       </div>
 
-                      <Button variant="secondary" onClick={() => setIsBroadcastOpen(true)} className="text-xs py-3 px-4 min-h-[44px]">
-                        <Volume2 className="w-4 h-4" />
-                        Site Broadcast
-                      </Button>
+                      <div className="flex-1 overflow-y-auto divide-y divide-slate-50">
+                        {volunteers.map(v => {
+                          const name = v.profile?.full_name || "Pending Name";
+                          return (
+                            <div
+                              key={v.profile_id}
+                              onClick={() => setActiveThreadVolId(v.profile_id)}
+                              className={`p-4 flex gap-3 cursor-pointer transition ${
+                                activeThreadVolId === v.profile_id ? "bg-[#023E8A]/5 font-semibold" : "hover:bg-slate-50/50"
+                              }`}
+                            >
+                              <Avatar name={name} size="sm" />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs text-slate-800 font-bold truncate">{name}</p>
+                                <p className="text-[10px] text-slate-400 truncate mt-0.5">{v.volunteer_code}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {volunteers.length === 0 && (
+                          <div className="p-8 text-center text-slate-400 italic text-xs">No assigned team channels.</div>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 bg-white/45 backdrop-blur-md border border-white/50 rounded-xl overflow-hidden h-[65vh] shadow-sm">
-                      
-                      {/* Conversations Side Menu */}
-                      <div className="lg:col-span-1 border-r border-white/30 overflow-y-auto flex flex-col divide-y divide-white/20 bg-white/10">
-                        <div className="p-4 bg-white/25 text-xs font-bold text-[#023E8A] uppercase tracking-wider font-mono shrink-0 border-b border-white/25">
-                          My Thread Contacts
-                        </div>
-
-                        {volunteers.length === 0 ? (
-                          <div className="p-6 text-center text-xs text-slate-500 italic">
-                            No volunteers to chat with yet.
+                    {/* Chat Panel */}
+                    <div className="lg:col-span-2 bg-white border border-slate-100 rounded-2xl flex flex-col overflow-hidden shadow-xs">
+                      {activeVolForChat ? (
+                        <>
+                          <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center gap-3 shrink-0">
+                            <Avatar name={activeVolForChat.profile?.full_name || "Volunteer"} size="sm" />
+                            <div>
+                              <p className="text-xs font-bold text-[#1B4965]">{activeVolForChat.profile?.full_name || "Pending Name"}</p>
+                              <p className="text-[10px] text-slate-400 font-mono">{activeVolForChat.volunteer_code}</p>
+                            </div>
                           </div>
-                        ) : (
-                          volunteers.map((vol) => {
-                            const lastMsg = messages.filter(
-                              (m) => m.sender_id === vol.profile_id || m.recipient_id === vol.profile_id
-                            ).slice(-1)[0];
-                            const hasUnread = lastMsg && lastMsg.recipient_id === user!.id && !lastMsg.read;
 
-                            return (
-                              <div
-                                key={vol.profile_id}
-                                onClick={() => setActiveThreadVolId(vol.profile_id)}
-                                className={`p-4 flex items-center justify-between cursor-pointer hover:bg-white/25 transition ${activeThreadVolId === vol.profile_id ? "bg-white/35" : ""}`}
-                              >
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <Avatar name={vol.profile.full_name} size="sm" />
-                                  <div className="min-w-0">
-                                    <span className="font-semibold text-[#023E8A] text-xs block truncate">{vol.profile.full_name}</span>
-                                    <span className="text-[10px] text-slate-500 block truncate max-w-[150px] mt-0.5 font-medium">
-                                      {lastMsg ? lastMsg.body : "No messages yet"}
-                                    </span>
+                          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 bg-slate-50/50">
+                            {messages.map(msg => {
+                              const isMe = msg.sender_id === user!.id;
+                              return (
+                                <div key={msg.id} className={`flex flex-col max-w-[75%] ${isMe ? "self-end items-end" : "self-start items-start"}`}>
+                                  <div className={`p-3 rounded-2xl text-xs leading-relaxed ${
+                                    isMe ? "bg-[#023E8A] text-white rounded-tr-xs" : "bg-white border border-slate-100 text-slate-800 rounded-tl-xs shadow-xs"
+                                  }`}>
+                                    {msg.body}
                                   </div>
+                                  <span className="text-[9px] text-slate-400 font-mono mt-1">
+                                    {new Date(msg.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
                                 </div>
+                              );
+                            })}
+                            <div ref={messagesEndRef} />
+                            {messages.length === 0 && (
+                              <div className="m-auto text-center text-slate-400 italic text-xs">No messages yet. Begin active thread!</div>
+                            )}
+                          </div>
 
-                                {hasUnread && (
-                                  <span className="w-2.5 h-2.5 rounded-full bg-[#0096C7] shrink-0 ml-2" />
-                                )}
+                          <form onSubmit={handleSendStaffMessage} className="p-4 bg-white border-t border-slate-100 flex gap-2 shrink-0">
+                            <Input
+                              placeholder="Type coordinator directive..."
+                              value={newStaffMessage}
+                              onChange={(e) => setNewStaffMessage(e.target.value)}
+                              className="py-2.5"
+                            />
+                            <Button type="submit" disabled={isSendingMessage} className="px-5 min-h-[44px]">
+                              <Send className="w-4 h-4" /> Send
+                            </Button>
+                          </form>
+                        </>
+                      ) : (
+                        <div className="m-auto text-center p-8">
+                          <MessageSquare className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                          <p className="text-xs text-slate-400 italic">Select an assigned volunteer from the list to initiate conversation thread.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* --- TAB: TEAM ANALYTICS --- */}
+                {activeTab === "analytics" && (
+                  <div className="flex flex-col gap-6">
+                    <div>
+                      <h2 className="font-serif font-bold text-xl text-[#023E8A]">Team Analytics</h2>
+                      <p className="text-xs text-slate-400 mt-0.5 font-sans">Review cumulative baseline participation load, plastic removal metrics, and team contribution curves.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <Card title="Restoration Impact Metrics" subtitle="Environmental calibration metrics" className="shadow-xs">
+                        <div className="flex flex-col gap-4 text-xs">
+                          <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                            <span className="font-semibold text-slate-600">Saplings Sown Count:</span>
+                            <span className="font-mono font-bold text-[#0096C7] text-sm">{stats.hoursLogged * 5} saplings</span>
+                          </div>
+                          <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                            <span className="font-semibold text-slate-600">Estuary Plastic Extracted:</span>
+                            <span className="font-mono font-bold text-[#0096C7] text-sm">{stats.hoursLogged * 12} kg</span>
+                          </div>
+                          <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                            <span className="font-semibold text-slate-600">Households Reached:</span>
+                            <span className="font-mono font-bold text-[#0096C7] text-sm">{Math.floor(stats.hoursLogged * 1.5)} units</span>
+                          </div>
+                        </div>
+                      </Card>
+
+                      <Card title="Individual Team Hours breakdown" subtitle="Assigned active contributors" className="shadow-xs">
+                        <div className="flex flex-col gap-4 py-2">
+                          {volunteers.map(v => {
+                            const maxHrs = Math.max(...volunteers.map(vol => vol.hours_logged), 1);
+                            const percent = Math.min(Math.round(((v.hours_logged || 0) / maxHrs) * 100), 100);
+                            return (
+                              <div key={v.profile_id} className="flex items-center gap-4 text-xs">
+                                <span className="w-24 truncate font-bold text-slate-700">{v.profile?.full_name || "Pending Name"}</span>
+                                <div className="flex-1 h-5 bg-slate-100 rounded-full overflow-hidden flex items-center">
+                                  <div 
+                                    className="h-full bg-[#0096C7] rounded-full transition-all duration-500" 
+                                    style={{ width: `${percent}%` }}
+                                  />
+                                </div>
+                                <span className="font-bold text-slate-600">{v.hours_logged || 0}h</span>
                               </div>
                             );
-                          })
-                        )}
-                      </div>
-
-                      {/* Conversation thread box */}
-                      <div className="lg:col-span-2 flex flex-col h-full justify-between bg-white/5 min-w-0">
-                        {activeVolProfile ? (
-                          <>
-                            {/* Thread header */}
-                            <div className="px-6 py-4 bg-white/40 border-b border-white/45 flex justify-between items-center shrink-0">
-                              <div className="flex items-center gap-3">
-                                <Avatar name={activeVolProfile.full_name} size="sm" />
-                                <div>
-                                  <span className="font-bold text-[#023E8A] text-xs block leading-none">{activeVolProfile.full_name}</span>
-                                  <span className="text-[10px] text-slate-500 font-mono tracking-wider mt-1.5 block">SECURE DIRECT 1:1 LINE</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Thread messages list */}
-                            <div className="flex-1 p-6 overflow-y-auto flex flex-col gap-3">
-                              {activeThread.length === 0 ? (
-                                <div className="h-full flex items-center justify-center text-center">
-                                  <p className="text-xs text-slate-500 italic">No historical messages found. Begin conversation below.</p>
-                                </div>
-                              ) : (
-                                activeThread.map((msg) => {
-                                  const isMe = msg.sender_id === user!.id;
-                                  return (
-                                    <div
-                                      key={msg.id}
-                                      className={`max-w-[75%] p-3.5 rounded-xl text-xs leading-relaxed ${
-                                        isMe
-                                          ? "bg-[#023E8A] text-white rounded-br-none self-end shadow-xs"
-                                          : "bg-white/80 text-[#1B4965] border border-white/50 backdrop-blur-md rounded-bl-none self-start shadow-xs"
-                                      }`}
-                                    >
-                                      <p>{msg.body}</p>
-                                      <span className={`text-[9px] block text-right mt-1.5 ${isMe ? "text-slate-300" : "text-slate-400"}`}>
-                                        {new Date(msg.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                      </span>
-                                    </div>
-                                  );
-                                })
-                              )}
-                              <div ref={messagesEndRef} />
-                            </div>
-
-                            {/* Msg input */}
-                            <form onSubmit={handleSendStaffMessage} className="bg-white/40 border-t border-white/45 p-4 flex gap-3 shrink-0">
-                              <input
-                                type="text"
-                                placeholder={`Type direct message to ${activeVolProfile.full_name}...`}
-                                value={newStaffMessage}
-                                onChange={(e) => setNewStaffMessage(e.target.value)}
-                                className="flex-1 px-4 py-3 text-xs border border-white/50 bg-white/70 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#0096C7] min-h-[44px]"
-                              />
-                              <button
-                                type="submit"
-                                disabled={!newStaffMessage.trim() || isSendingMessage}
-                                className="px-5 py-3 bg-[#023E8A] hover:bg-[#1B4965] disabled:opacity-50 text-white rounded-xl text-xs font-bold shrink-0 transition inline-flex items-center gap-1.5 cursor-pointer min-h-[44px]"
-                              >
-                                Send
-                                <Send className="w-3.5 h-3.5" />
-                              </button>
-                            </form>
-                          </>
-                        ) : (
-                          <div className="h-full flex items-center justify-center text-center p-8">
-                            <div>
-                              <MessageSquare className="w-10 h-10 text-slate-400 mx-auto mb-2 animate-pulse" />
-                              <h4 className="font-serif font-bold text-[#023E8A] text-sm">Select Conversation</h4>
-                              <p className="text-xs text-slate-500 max-w-xs mx-auto mt-1 leading-relaxed">Select an active volunteer from the left contact list to establish a direct secure message channel.</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
+                          })}
+                          {volunteers.length === 0 && (
+                            <div className="text-center text-slate-400 italic">No assigned team data.</div>
+                          )}
+                        </div>
+                      </Card>
                     </div>
                   </div>
                 )}
@@ -1604,12 +1473,12 @@ export default function StaffDashboard() {
         </main>
       </div>
 
-      {/* --- MODAL: ADD VOLUNTEER --- */}
-      <Modal isOpen={isAddVolOpen} onClose={() => setIsAddVolOpen(false)} title="Volunteer Intake Registration Form">
-        <form onSubmit={handleAddVolunteerSubmit} className="flex flex-col gap-4">
+      {/* --- MODAL: REGISTER VOLUNTEER --- */}
+      <Modal isOpen={isAddVolOpen} onClose={() => setIsAddVolOpen(false)} title="Register New Field Volunteer">
+        <form onSubmit={handleAddVolunteerSubmit} className="flex flex-col gap-4 text-xs">
           <Input
             label="Full Name *"
-            placeholder="E.g. Sneha Patel"
+            placeholder="E.g. Meera Sen..."
             value={volName}
             onChange={(e) => setVolName(e.target.value)}
             className="py-3"
@@ -1619,16 +1488,17 @@ export default function StaffDashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Email Address *"
+              placeholder="E.g. meera@ocean.edu..."
               type="email"
-              placeholder="e.g. name@gmail.com"
               value={volEmail}
               onChange={(e) => setVolEmail(e.target.value)}
               className="py-3"
               required
             />
+
             <Input
-              label="Phone Number *"
-              placeholder="+91 XXXXX XXXXX"
+              label="Phone Contact *"
+              placeholder="E.g. +91 98765 43211..."
               value={volPhone}
               onChange={(e) => setVolPhone(e.target.value)}
               className="py-3"
@@ -1636,166 +1506,125 @@ export default function StaffDashboard() {
             />
           </div>
 
-          <Select
-            label="Preferred Location Site *"
-            value={volSitePref}
-            onChange={(e) => setVolSitePref(e.target.value)}
-            options={sites.map(s => ({ value: s.id, label: `${s.name} (${s.category})` }))}
-          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Select
+              label="Preferred Sector Site *"
+              value={volSitePref}
+              onChange={(e) => setVolSitePref(e.target.value)}
+              options={sites.map(s => ({ value: s.id, label: s.name }))}
+            />
 
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold uppercase tracking-wider text-deep/70">Conservation Interests (Multi-select)</span>
-            <div className="flex flex-wrap gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
-              {interestsList.map((tag) => {
+            <Select
+              label="Availability Schedule *"
+              value={volAvailability}
+              onChange={(e) => setVolAvailability(e.target.value as any)}
+              options={[
+                { value: "Weekend warrior", label: "Weekend warrior" },
+                { value: "Several times a month", label: "Several times a month" },
+                { value: "Three weeks or longer", label: "Three weeks or longer" },
+                { value: "A day or two a year", label: "A day or two a year" }
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Select
+              label="How did they hear about us?"
+              value={volHowHeard}
+              onChange={(e) => setVolHowHeard(e.target.value)}
+              options={howHeardList.map(h => ({ value: h, label: h }))}
+            />
+
+            <Input
+              label="Emergency Contact Name/Phone *"
+              placeholder="E.g. Father: +91 98222 11111..."
+              value={volEmergency}
+              onChange={(e) => setVolEmergency(e.target.value)}
+              className="py-3"
+              required
+            />
+          </div>
+
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-wider text-deep/70 block mb-2">Interests / Focus Tags</span>
+            <div className="flex flex-wrap gap-2">
+              {interestsList.map(tag => {
                 const isSelected = volInterests.includes(tag);
                 return (
                   <Chip
                     key={tag}
                     label={tag}
                     isSelected={isSelected}
-                    onClick={() => handleToggleTag(tag)}
+                    onClick={() => {
+                      setVolInterests(prev => 
+                        prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+                      );
+                    }}
                   />
                 );
               })}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Select
-              label="Intake Time Commitment Availability"
-              value={volAvailability}
-              onChange={(e) => setVolAvailability(e.target.value as any)}
-              options={[
-                { value: "A day or two a year", label: "A day or two a year" },
-                { value: "Several times a month", label: "Several times a month" },
-                { value: "Three weeks or longer", label: "Three weeks or longer" },
-                { value: "Weekend warrior", label: "Weekend warrior" }
-              ]}
-            />
-
-            <Select
-              label="How did they hear about OSI?"
-              value={volHowHeard}
-              onChange={(e) => setVolHowHeard(e.target.value)}
-              options={howHeardList.map(h => ({ value: h, label: h }))}
-            />
-          </div>
-
-          <Input
-            label="Emergency Contact & Relationship *"
-            placeholder="Kiran Patel (Father) - +91 XXXXX XXXXX"
-            value={volEmergency}
-            onChange={(e) => setVolEmergency(e.target.value)}
-            className="py-3"
-            required
-          />
-
           <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-slate-100">
             <Button type="button" variant="ghost" onClick={() => setIsAddVolOpen(false)} className="py-3 px-4 min-h-[44px]">
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmittingVol} className="py-3 px-4 min-h-[44px]">
-              {isSubmittingVol ? "Generating Profile..." : "Register & Generate Profile"}
+              {isSubmittingVol ? "Registering..." : "Generate Security Profile"}
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* --- MODAL: CONFIRM CREDENTIALS SLIP (Task 6) --- */}
-      <Modal isOpen={credentialsModalOpen} onClose={() => setCredentialsModalOpen(false)} title="Credentials Share-Slip Generated">
-        {createdCredentials && (
+      {/* --- CREDENTIALS CONFIRMATION MODAL --- */}
+      {createdCredentials && (
+        <Modal isOpen={credentialsModalOpen} onClose={() => setCredentialsModalOpen(false)} title="Security Profile Generated">
           <div className="flex flex-col gap-4 text-xs">
-            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100 flex gap-3 text-emerald-800 leading-relaxed mb-2">
-              <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5 text-emerald-600" />
-              <div>
-                <span className="font-bold">Credential Slip Generated!</span> Copy and send this slip securely to the new volunteer. They will be forced to set a new password on their first login.
+            <div className="p-3 bg-emerald-50 rounded-lg text-emerald-800 border border-emerald-200">
+              Account created successfully! Please record the generated volunteer credentials.
+            </div>
+            <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl flex flex-col gap-3 font-mono">
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-slate-400">Volunteer Code:</span>
+                <span className="font-bold text-[#0096C7] select-all">{createdCredentials.volunteer_code}</span>
+              </div>
+              <div className="flex justify-between border-b pb-2">
+                <span className="text-slate-400">Temporary Email:</span>
+                <span className="font-bold select-all">{createdCredentials.email}</span>
+              </div>
+              <div className="flex justify-between pb-1">
+                <span className="text-slate-400">Password:</span>
+                <span className="font-bold text-coral select-all">{createdCredentials.password}</span>
               </div>
             </div>
-
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 font-mono text-slate-600 select-all flex flex-col gap-2">
-              <div>
-                <span className="font-bold text-deep">Volunteer Registry Code:</span> {createdCredentials.volunteer_code}
-              </div>
-              <div>
-                <span className="font-bold text-deep">Secure Portal ID:</span> {createdCredentials.email}
-              </div>
-              <div>
-                <span className="font-bold text-deep">Temporary Password:</span> <span className="text-coral font-bold">{createdCredentials.password}</span>
-              </div>
-            </div>
-
-            <div className="flex gap-3 justify-end mt-4">
-              <Button variant="ghost" onClick={() => setCredentialsModalOpen(false)} className="py-3 px-4 min-h-[44px]">
-                Close Window
-              </Button>
-              <Button 
-                onClick={() => copyToClipboard(`Ocean School India - Volunteer Login\nRegistry Code: ${createdCredentials.volunteer_code}\nPortal ID: ${createdCredentials.email}\nTemporary Password: ${createdCredentials.password}`)}
-                className="py-3 px-4 min-h-[44px]"
-              >
-                Copy Credentials Slip
-              </Button>
+            <div className="flex justify-end pt-4 border-t">
+              <Button onClick={() => setCredentialsModalOpen(false)} className="py-3 px-4 min-h-[44px]">Got it, Close Modal</Button>
             </div>
           </div>
-        )}
-      </Modal>
+        </Modal>
+      )}
 
-      {/* --- DEACTIVATE VOLUNTEER CONFIRMATION MODAL --- */}
-      <Modal isOpen={isDeactivateConfirmOpen} onClose={() => setIsDeactivateConfirmOpen(false)} title="Confirm Profile Deactivation">
-        <div className="flex flex-col gap-4 text-xs text-slate-600">
-          <p className="font-semibold text-deep text-sm">Are you absolutely sure you want to deactivate this volunteer profile?</p>
-          <p>They will immediately lose access to their Depth Gauge console, task lists, and messaging. This action should only be triggered if a volunteer moves out of the conservation program.</p>
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-            <Button variant="ghost" onClick={() => setIsDeactivateConfirmOpen(false)} className="py-3 px-4 min-h-[44px]">Cancel</Button>
-            <Button variant="danger" onClick={handleDeactivateConfirm} className="py-3 px-4 min-h-[44px]">Deactivate Now</Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* --- DELETE TASK CONFIRMATION MODAL --- */}
-      <Modal isOpen={isDeleteTaskConfirmOpen} onClose={() => setIsDeleteTaskConfirmOpen(false)} title="Confirm Task Deletion">
-        <div className="flex flex-col gap-4 text-xs text-slate-600">
-          <p className="font-semibold text-deep text-sm">Are you sure you want to delete this task assignment?</p>
-          <p>This will erase the task description, priority status, and historical logs permanently from the database index. This action is irreversible.</p>
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-            <Button variant="ghost" onClick={() => setIsDeleteTaskConfirmOpen(false)} className="py-3 px-4 min-h-[44px]">Cancel</Button>
-            <Button variant="danger" onClick={handleDeleteTaskConfirm} className="py-3 px-4 min-h-[44px]">Delete Assignment</Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* --- MODAL: INDIVIDUAL TASK CREATOR --- */}
-      <Modal isOpen={isAddTaskOpen} onClose={() => setIsAddTaskOpen(false)} title="Assign Individual Task">
-        <form onSubmit={handleAddTaskSubmit} className="flex flex-col gap-4">
+      {/* --- MODAL: ASSIGN TASK --- */}
+      <Modal isOpen={isAddTaskOpen} onClose={() => setIsAddTaskOpen(false)} title="Assign New Specialized Task">
+        <form onSubmit={handleAddTaskSubmit} className="flex flex-col gap-4 text-xs">
           <Input
             label="Task Title *"
-            placeholder="Water sampling bottle deliver..."
+            placeholder="E.g. Calibrate water level parameters..."
             value={taskTitle}
             onChange={(e) => setTaskTitle(e.target.value)}
             className="py-3"
             required
           />
 
-          <Textarea
-            label="Task Description"
-            placeholder="Include specific coordinates or kit checklists..."
-            value={taskDesc}
-            onChange={(e) => setTaskDesc(e.target.value)}
-            rows={3}
-          />
-
           <Select
-            label="Assignee Volunteer *"
+            label="Assign to Team Member *"
             value={taskAssigneeId}
             onChange={(e) => setTaskAssigneeId(e.target.value)}
-            options={volunteers
-              .filter(v => v && v.profile)
-              .map(v => ({
-                value: v.profile_id,
-                label: `${v.profile?.full_name || "Unknown User"} (${v.volunteer_code || ""})`
-              }))}
+            options={volunteers.map(v => ({ value: v.profile_id, label: `${v.profile?.full_name} (${v.volunteer_code})` }))}
           />
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Input
               label="Due Date *"
               type="date"
@@ -1806,7 +1635,7 @@ export default function StaffDashboard() {
             />
 
             <Select
-              label="Priority"
+              label="Priority Level *"
               value={taskPriority}
               onChange={(e) => setTaskPriority(e.target.value as any)}
               options={[
@@ -1815,16 +1644,24 @@ export default function StaffDashboard() {
                 { value: "high", label: "Urgent Priority" }
               ]}
             />
+
+            <Select
+              label="Linked Campaign Drive"
+              value={taskLinkedOpp}
+              onChange={(e) => setTaskLinkedOpp(e.target.value)}
+              options={[
+                { value: "", label: "No linked drive" },
+                ...opportunities.map(o => ({ value: o.id, label: o.title }))
+              ]}
+            />
           </div>
 
-          <Select
-            label="Link to Campaign Opportunity (Optional)"
-            value={taskLinkedOpp}
-            onChange={(e) => setTaskLinkedOpp(e.target.value)}
-            options={[
-              { value: "", label: "No linked campaign" },
-              ...opportunities.map(o => ({ value: o.id, label: o.title }))
-            ]}
+          <Textarea
+            label="Task Guidelines / Description"
+            placeholder="Provide task execution guidelines..."
+            value={taskDesc}
+            onChange={(e) => setTaskDesc(e.target.value)}
+            rows={3}
           />
 
           <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-slate-100">
@@ -1832,40 +1669,32 @@ export default function StaffDashboard() {
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmittingTask} className="py-3 px-4 min-h-[44px]">
-              {isSubmittingTask ? "Dispatching..." : "Dispatch Task"}
+              {isSubmittingTask ? "Assigning..." : "Assign Task"}
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* --- MODAL: BULK SITE TASK ASSIGNER --- */}
-      <Modal isOpen={isBulkTaskOpen} onClose={() => setIsBulkTaskOpen(false)} title="Bulk Site Task Assigner">
-        <form onSubmit={handleBulkTaskSubmit} className="flex flex-col gap-4">
+      {/* --- MODAL: BULK SITE ASSIGN TASK --- */}
+      <Modal isOpen={isBulkTaskOpen} onClose={() => setIsBulkTaskOpen(false)} title="Bulk Site Assign Tasks">
+        <form onSubmit={handleBulkTaskSubmit} className="flex flex-col gap-4 text-xs">
           <Input
-            label="Bulk Task Title *"
-            placeholder="Safety equipment verify..."
+            label="Task Title *"
+            placeholder="E.g. Carry out baseline water quality..."
             value={bulkTaskTitle}
             onChange={(e) => setBulkTaskTitle(e.target.value)}
             className="py-3"
             required
           />
 
-          <Textarea
-            label="Bulk Task Description"
-            placeholder="Assign this task to ALL volunteers who prefer this location."
-            value={bulkTaskDesc}
-            onChange={(e) => setBulkTaskDesc(e.target.value)}
-            rows={3}
-          />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Select
+              label="Target Preferred Site *"
+              value={bulkTaskSite}
+              onChange={(e) => setBulkTaskSite(e.target.value)}
+              options={sites.map(s => ({ value: s.id, label: s.name }))}
+            />
 
-          <Select
-            label="Target Site Group *"
-            value={bulkTaskSite}
-            onChange={(e) => setBulkTaskSite(e.target.value)}
-            options={sites.map(s => ({ value: s.id, label: s.name }))}
-          />
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Due Date *"
               type="date"
@@ -1876,7 +1705,7 @@ export default function StaffDashboard() {
             />
 
             <Select
-              label="Priority"
+              label="Priority Level"
               value={bulkTaskPriority}
               onChange={(e) => setBulkTaskPriority(e.target.value as any)}
               options={[
@@ -1887,23 +1716,31 @@ export default function StaffDashboard() {
             />
           </div>
 
+          <Textarea
+            label="Task Description"
+            placeholder="Provide task execution guidelines..."
+            value={bulkTaskDesc}
+            onChange={(e) => setBulkTaskDesc(e.target.value)}
+            rows={3}
+          />
+
           <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-slate-100">
             <Button type="button" variant="ghost" onClick={() => setIsBulkTaskOpen(false)} className="py-3 px-4 min-h-[44px]">
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmittingBulkTask} className="py-3 px-4 min-h-[44px]">
-              {isSubmittingBulkTask ? "Dispatching Bulk..." : "Dispatch Bulk Task"}
+              {isSubmittingBulkTask ? "Assigning Bulk..." : "Confirm Bulk Assignment"}
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* --- MODAL: CREATE OPPORTUNITY DRIVE --- */}
-      <Modal isOpen={isAddOppOpen} onClose={() => setIsAddOppOpen(false)} title="Create Restoration Campaign Drive">
-        <form onSubmit={handleAddOppSubmit} className="flex flex-col gap-4">
+      {/* --- MODAL: CREATE CAMPAIGN/OPPORTUNITY --- */}
+      <Modal isOpen={isAddOppOpen} onClose={() => setIsAddOppOpen(false)} title="Create New Restoration Campaign">
+        <form onSubmit={handleAddOppSubmit} className="flex flex-col gap-4 text-xs">
           <Input
-            label="Opportunity Title *"
-            placeholder="E.g. Mangrove Density Survey..."
+            label="Campaign/Opportunity Title *"
+            placeholder="E.g. Nerul Mangrove Buffer Seedling..."
             value={oppTitle}
             onChange={(e) => setOppTitle(e.target.value)}
             className="py-3"
@@ -1912,15 +1749,15 @@ export default function StaffDashboard() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Select
-              label="Assigned Site Sector *"
+              label="Location Site *"
               value={oppSiteId}
               onChange={(e) => setOppSiteId(e.target.value)}
               options={sites.map(s => ({ value: s.id, label: s.name }))}
             />
 
             <Input
-              label="Campaign Type *"
-              placeholder="Creek Cleanup / Coral survey..."
+              label="Campaign Type (Activity) *"
+              placeholder="E.g. Clean-up, Planting, Dive Survey..."
               value={oppType}
               onChange={(e) => setOppType(e.target.value)}
               className="py-3"
@@ -1928,19 +1765,10 @@ export default function StaffDashboard() {
             />
           </div>
 
-          <Textarea
-            label="Campaign Action Description *"
-            placeholder="Detail muddy boot requirements, open cert constraints or hydration details."
-            value={oppDesc}
-            onChange={(e) => setOppDesc(e.target.value)}
-            rows={3}
-            required
-          />
-
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Input
               label="Commitment Label *"
-              placeholder="e.g. 4 hours"
+              placeholder="E.g. 3 hours, 1 day..."
               value={oppCommitment}
               onChange={(e) => setOppCommitment(e.target.value)}
               className="py-3"
@@ -1948,7 +1776,7 @@ export default function StaffDashboard() {
             />
 
             <Input
-              label="Target Drive Date *"
+              label="Scheduled Date *"
               type="date"
               value={oppDate}
               onChange={(e) => setOppDate(e.target.value)}
@@ -1957,14 +1785,24 @@ export default function StaffDashboard() {
             />
 
             <Input
-              label="Capacity (Volunteers) *"
+              label="Attendance Capacity *"
               type="number"
+              placeholder="E.g. 50..."
               value={oppCapacity}
               onChange={(e) => setOppCapacity(e.target.value)}
               className="py-3"
               required
             />
           </div>
+
+          <Textarea
+            label="Detailed Description *"
+            placeholder="Type comprehensive campaign description details..."
+            value={oppDesc}
+            onChange={(e) => setOppDesc(e.target.value)}
+            rows={4}
+            required
+          />
 
           <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-slate-100">
             <Button type="button" variant="ghost" onClick={() => setIsAddOppOpen(false)} className="py-3 px-4 min-h-[44px]">
@@ -1977,19 +1815,17 @@ export default function StaffDashboard() {
         </form>
       </Modal>
 
-      {/* --- MODAL: COMPLETE CAMPAIGN & LOG ATTENDANCE --- */}
-      <Modal isOpen={isCompleteOppOpen} onClose={() => setIsCompleteOppOpen(false)} title="Finalise Campaign & Credit Hours">
-        {selectedOppForComplete && (
-          <form onSubmit={handleCompleteCampaignSubmit} className="flex flex-col gap-4">
-            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 flex gap-2 text-amber-800 text-xs">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>Finalising completes the campaign and automatically credits the specified hours to checked volunteers.</span>
+      {/* --- MODAL: FINALIZE CAMPAIGN & CREDIT HOURS --- */}
+      {selectedOppForComplete && (
+        <Modal isOpen={isCompleteOppOpen} onClose={() => setIsCompleteOppOpen(false)} title="Credit Campaign Hours">
+          <form onSubmit={handleCompleteCampaignSubmit} className="flex flex-col gap-4 text-xs">
+            <div className="p-3 bg-[#0096C7]/10 text-[#023E8A] rounded-xl border border-[#0096C7]/20">
+              Confirm hours credit for completing campaign: <span className="font-bold">"{selectedOppForComplete.title}"</span>
             </div>
 
-            <h4 className="font-bold text-xs text-deep">Drive Title: {selectedOppForComplete.title}</h4>
-
             <Input
-              label="Hours to Credit (Numerical) *"
+              label="Conservation Hours to Credit *"
+              placeholder="Hours (e.g. 3)"
               type="number"
               value={hoursToLog}
               onChange={(e) => setHoursToLog(e.target.value)}
@@ -1997,27 +1833,24 @@ export default function StaffDashboard() {
               required
             />
 
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-semibold uppercase tracking-wider text-deep/70">Attendance Checksheet (Checked = Attended)</span>
-              <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg bg-white p-3 flex flex-col gap-2">
-                {volunteers.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic text-center py-4">No volunteers registered to checklist.</p>
-                ) : (
-                  volunteers.map(vol => {
-                    const isChecked = attendeesList.includes(vol.profile_id);
-                    return (
-                      <label key={vol.profile_id} className="flex items-center gap-2.5 text-xs text-slate-700 cursor-pointer p-1 rounded hover:bg-slate-50 min-h-[32px]">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => toggleAttendee(vol.profile_id)}
-                          className="w-4 h-4 rounded border-slate-300 text-cyan focus:ring-cyan"
-                        />
-                        <span className="font-medium">{vol.profile.full_name} ({vol.volunteer_code})</span>
-                      </label>
-                    );
-                  })
-                )}
+            <div>
+              <span className="text-xs font-semibold uppercase tracking-wider text-deep/70 block mb-2">Check Attended Volunteers</span>
+              <div className="flex flex-col gap-2 max-h-[200px] overflow-y-auto border border-slate-100 rounded-xl p-3 bg-slate-50">
+                {volunteers.map(v => {
+                  const isChecked = attendeesList.includes(v.profile_id);
+                  const name = v.profile?.full_name || "Pending Name";
+                  return (
+                    <label key={v.profile_id} className="flex items-center gap-2.5 p-1 hover:bg-slate-100 rounded cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleAttendee(v.profile_id)}
+                        className="rounded text-[#023E8A]"
+                      />
+                      <span>{name} ({v.volunteer_code})</span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
@@ -2026,52 +1859,82 @@ export default function StaffDashboard() {
                 Cancel
               </Button>
               <Button type="submit" disabled={isSubmittingComplete} className="py-3 px-4 min-h-[44px]">
-                {isSubmittingComplete ? "Finalising Logs..." : "Finalise Drive Logs"}
+                {isSubmittingComplete ? "Crediting Hours..." : "Complete & Credit Hours"}
               </Button>
             </div>
           </form>
-        )}
-      </Modal>
+        </Modal>
+      )}
 
-      {/* --- MODAL: SITE BROADCAST UTILITY --- */}
-      <Modal isOpen={isBroadcastOpen} onClose={() => setIsBroadcastOpen(false)} title="Site & Tag Broadcasting Unit">
-        <form onSubmit={handleBroadcastSubmit} className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 bg-slate-100 p-1 rounded-xl">
-            <button
-              type="button"
-              onClick={() => { setBroadcastType("site"); setBroadcastTarget(sites[0]?.id || ""); }}
-              className={`py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer min-h-[36px] ${broadcastType === "site" ? "bg-white text-deep shadow-sm" : "text-slate-500"}`}
-            >
-              Broadcast by Site
-            </button>
-            <button
-              type="button"
-              onClick={() => { setBroadcastType("tag"); setBroadcastTarget(interestsList[0]); }}
-              className={`py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer min-h-[36px] ${broadcastType === "tag" ? "bg-white text-deep shadow-sm" : "text-slate-500"}`}
-            >
-              Broadcast by Interest Tag
-            </button>
-          </div>
-
-          {broadcastType === "site" ? (
-            <Select
-              label="Target Site Group *"
-              value={broadcastTarget}
-              onChange={(e) => setBroadcastTarget(e.target.value)}
-              options={sites.map(s => ({ value: s.id, label: s.name }))}
-            />
-          ) : (
-            <Select
-              label="Target Interest Tag *"
-              value={broadcastTarget}
-              onChange={(e) => setBroadcastTarget(e.target.value)}
-              options={interestsList.map(t => ({ value: t, label: t }))}
-            />
-          )}
+      {/* --- MODAL: SEND JOIN INVITE --- */}
+      <Modal isOpen={isSendInviteOpen} onClose={() => setIsSendInviteOpen(false)} title="Send Participant Invitation">
+        <form onSubmit={handleSendInviteSubmit} className="flex flex-col gap-4 text-xs">
+          <Input
+            label="User Email Address *"
+            placeholder="E.g. volunteer@gmail.com..."
+            type="email"
+            value={inviteEmail}
+            onChange={(e) => setInviteEmail(e.target.value)}
+            className="py-3"
+            required
+          />
 
           <Textarea
-            label="Broadcast Message Body *"
-            placeholder="Type your alert or instruction. An automatic [BROADCAST] header is attached."
+            label="Invitation Message"
+            placeholder="Type custom invitation details..."
+            value={inviteMsg}
+            onChange={(e) => setInviteMsg(e.target.value)}
+            rows={3}
+          />
+
+          <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-slate-100">
+            <Button type="button" variant="ghost" onClick={() => setIsSendInviteOpen(false)} className="py-3 px-4 min-h-[44px]">
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSubmittingInvite} className="py-3 px-4 min-h-[44px]">
+              {isSubmittingInvite ? "Dispatching..." : "Dispatch Invite"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* --- MODAL: MESSAGE BROADCAST DIALOG --- */}
+      <Modal isOpen={isBroadcastOpen} onClose={() => setIsBroadcastOpen(false)} title="Broadcast Direct Alerts">
+        <form onSubmit={handleBroadcastSubmit} className="flex flex-col gap-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Select
+              label="Broadcast Selector Category"
+              value={broadcastType}
+              onChange={(e) => {
+                setBroadcastType(e.target.value as any);
+                setBroadcastTarget(e.target.value === "site" ? (sites[0]?.id || "") : interestsList[0]);
+              }}
+              options={[
+                { value: "site", label: "Preferred Sector Site" },
+                { value: "tag", label: "Interest Tag / Focus" }
+              ]}
+            />
+
+            {broadcastType === "site" ? (
+              <Select
+                label="Target Preferred Site *"
+                value={broadcastTarget}
+                onChange={(e) => setBroadcastTarget(e.target.value)}
+                options={sites.map(s => ({ value: s.id, label: s.name }))}
+              />
+            ) : (
+              <Select
+                label="Target Interest Tag *"
+                value={broadcastTarget}
+                onChange={(e) => setBroadcastTarget(e.target.value)}
+                options={interestsList.map(tag => ({ value: tag, label: tag }))}
+              />
+            )}
+          </div>
+
+          <Textarea
+            label="Broadcast Message Alert Body *"
+            placeholder="Type comprehensive broadcast directive body..."
             value={broadcastBody}
             onChange={(e) => setBroadcastBody(e.target.value)}
             rows={4}
@@ -2083,7 +1946,7 @@ export default function StaffDashboard() {
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmittingBroadcast} className="py-3 px-4 min-h-[44px]">
-              {isSubmittingBroadcast ? "Dispatching Broadcast..." : "Dispatch Broadcast"}
+              {isSubmittingBroadcast ? "Dispatching Broadcast..." : "Confirm Broadcast Alert"}
             </Button>
           </div>
         </form>
